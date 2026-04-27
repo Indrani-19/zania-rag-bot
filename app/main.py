@@ -32,6 +32,41 @@ app.include_router(documents.router, tags=["documents"])
 app.include_router(qa.router, tags=["qa"])
 
 
+@app.on_event("startup")
+async def _maybe_preload_demo_doc() -> None:
+    """Index samples/spec_kb.json under a fixed document_id so the chat UI has
+    something to query against on first visit. No-op unless DEMO_PRELOAD=true."""
+    if not settings.demo_preload:
+        return
+    try:
+        from app.core import vectorstore
+        from app.core.ingestion import ingest
+
+        sample = Path(__file__).parent.parent / "samples" / "spec_kb.json"
+        if not sample.exists():
+            logging.getLogger(__name__).warning(
+                "demo_preload skipped: %s missing", sample
+            )
+            return
+        existing = await vectorstore.list_chunks(settings.demo_document_id, limit=1)
+        if existing:
+            logging.getLogger(__name__).info(
+                "demo_preload: %s already indexed", settings.demo_document_id
+            )
+            return
+        chunks = ingest(sample.read_bytes(), sample.name)
+        await vectorstore.index_document(
+            settings.demo_document_id, chunks, request_id="demo-preload"
+        )
+        logging.getLogger(__name__).info(
+            "demo_preload: indexed %d chunks under %s",
+            len(chunks), settings.demo_document_id,
+        )
+    except Exception:
+        # Demo preload is best-effort — never block startup.
+        logging.getLogger(__name__).exception("demo_preload failed")
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -40,6 +75,20 @@ async def health() -> dict[str, str]:
 @app.get("/", include_in_schema=False)
 async def index() -> FileResponse:
     return FileResponse(_STATIC_DIR / "index.html", media_type="text/html")
+
+
+@app.get("/demo", include_in_schema=False)
+async def demo() -> JSONResponse:
+    """Returns the preloaded demo document_id when DEMO_PRELOAD=true, else 404.
+
+    The chat UI hits this on first load to auto-attach the demo doc so a fresh
+    visitor can immediately ask the spec's sample questions without uploading."""
+    if not settings.demo_preload:
+        return JSONResponse(status_code=404, content={"detail": "no demo document"})
+    return JSONResponse({
+        "document_id": settings.demo_document_id,
+        "file_name": "spec_kb.json",
+    })
 
 
 def _problem(status: int, type_: str, title: str, detail: str) -> JSONResponse:

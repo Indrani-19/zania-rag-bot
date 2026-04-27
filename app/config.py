@@ -18,6 +18,17 @@ class Settings(BaseSettings):
 
     llm_model: str = "gpt-4o-mini"
     embedding_model: str = "text-embedding-3-small"
+    # "openai" -> call the OpenAI-compatible endpoint at openai_base_url for embeddings
+    #             (works for OpenAI, Ollama, vLLM, anything that exposes /v1/embeddings).
+    # "local"  -> run sentence-transformers in-process (no API call, no key required).
+    #             Required when chat is on a provider like Groq that doesn't host embeddings.
+    embedding_provider: str = "openai"
+
+    # When DEMO_PRELOAD=true, samples/spec_kb.json is indexed at app startup under a
+    # well-known document_id so first-time visitors to the chat UI can ask the spec's
+    # five sample questions immediately, with no upload step.
+    demo_preload: bool = False
+    demo_document_id: str = "demo-spec-kb"
 
     chroma_persist_dir: str = "./chroma_db"
     retrieval_top_k: int = 4

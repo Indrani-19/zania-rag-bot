@@ -13,3 +13,7 @@ tiktoken>=0.8.0
 
 pypdf>=5.0.0
 openpyxl>=3.1.0
+
+# Local embedding fallback for providers (Groq, OpenRouter) that don't host embeddings.
+# Activated via EMBEDDING_PROVIDER=local. CPU-only; ~90 MB model on first call.
+sentence-transformers>=3.0.0

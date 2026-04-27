@@ -1,6 +1,16 @@
+---
+title: Zania RAG Bot
+emoji: 📄
+colorFrom: indigo
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Zania RAG Bot
 
-Question-answering API over PDF, JSON, or XLSX documents. FastAPI + LangChain + Chroma + OpenAI `gpt-4o-mini`.
+Question-answering API over PDF, JSON, or XLSX documents. FastAPI + LangChain + Chroma + OpenAI `gpt-4o-mini` (or any OpenAI-compatible provider — Groq, Ollama, vLLM).
 
 Built for the Zania coding challenge.
 
@@ -47,6 +57,10 @@ EMBEDDING_MODEL=nomic-embed-text
 ```
 
 Then `rm -rf chroma_db` (embedding dim changes 1536 → 768) and `make run`. Same API, $0/call. Cost tracker reports `$0.00` for non-OpenAI base URLs by design.
+
+### Public demo (Hugging Face Spaces + Groq)
+
+For a public URL with no local model running, see [`DEPLOY.md`](DEPLOY.md). The TL;DR: chat is served by Groq's hosted Llama (`llama-3.1-8b-instant`, free tier, OpenAI-compatible), embeddings run in-process via `sentence-transformers/all-MiniLM-L6-v2`, and the FastAPI app lives in a Docker Space. Set `DEMO_PRELOAD=true` in the Space secrets to ship `samples/spec_kb.json` pre-indexed so first-time visitors can ask questions without uploading.
 
 ### Smoke test against the spec's sample inputs
 

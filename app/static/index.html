@@ -1035,11 +1035,36 @@
     if (file) uploadDocument(file);
   });
 
+  /* ---- demo auto-attach ---- */
+  // If the server has DEMO_PRELOAD=true and the user has no chats yet,
+  // create one pre-attached to the demo doc so they can ask immediately.
+  const tryAutoAttachDemo = async () => {
+    if (Object.keys(state.chats).length > 0) return;
+    try {
+      const res = await fetch("/demo");
+      if (!res.ok) return;
+      const body = await res.json();
+      if (!body || !body.document_id) return;
+      const chat = createChat();
+      chat.docId = body.document_id;
+      chat.fileName = body.file_name || "demo";
+      chat.chunkCount = 0;
+      chat.messages.push({
+        role: "system",
+        system: true,
+        text: `Demo: "${chat.fileName}" preloaded. Ask the spec's sample questions, or click + New chat to attach your own.`,
+      });
+      saveState();
+      renderAll();
+    } catch (_) { /* demo is optional */ }
+  };
+
   /* ---- init ---- */
   loadState();
   ensureActiveChat();
   renderAll();
   composerEl.focus();
+  tryAutoAttachDemo();
 })();
 </script>
 </body>

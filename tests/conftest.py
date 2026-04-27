@@ -24,7 +24,9 @@ def isolated_state(tmp_path, monkeypatch):
 
     monkeypatch.setattr(vectorstore, "_client", None)
     monkeypatch.setattr(vectorstore, "_collection", None)
-    monkeypatch.setattr(embeddings, "_client", None)
+    monkeypatch.setattr(embeddings, "_openai_client", None)
+    monkeypatch.setattr(embeddings, "_local_model", None)
+    monkeypatch.setattr(embeddings, "_local_model_lock", None)
     monkeypatch.setattr(llm, "_client", None)
 
     yield
