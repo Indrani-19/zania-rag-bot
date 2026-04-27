@@ -41,9 +41,15 @@ curl -X POST http://localhost:8000/qa \
 
 Add `?verbose=true` to also see the source page snippets and retrieval scores.
 
-The spec also mentions a sample JSON document hosted as a Google Sheet; export it as JSON if you want to test the JSON path, or use any nested object — the bot recursively flattens to `key.path: value` lines before chunking.
+The spec also references a sample JSON file (a Google Sheet of Q&A entries). Exported and committed at `samples/spec_kb.json`:
 
-A captured run of the above curl is committed at [`samples/example_output_ollama.md`](samples/example_output_ollama.md) so you can preview the output without running the service.
+```bash
+curl -X POST http://localhost:8000/qa \
+  -F "document=@samples/spec_kb.json" \
+  -F "questions=@samples/spec_questions.json"
+```
+
+Captured runs against **both** sample inputs (PDF and JSON) are committed at [`samples/example_outputs.md`](samples/example_outputs.md). The same questions yield different answers (AWS/Europe vs GCP/US) because the bot is grounded in each document — proof that retrieval is working, not training-data recall.
 
 ### Smoke test with your own files
 
