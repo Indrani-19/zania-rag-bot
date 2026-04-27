@@ -1036,16 +1036,22 @@
   });
 
   /* ---- demo auto-attach ---- */
-  // If the server has DEMO_PRELOAD=true and the user has no chats yet,
-  // create one pre-attached to the demo doc so they can ask immediately.
+  // If the server has DEMO_PRELOAD=true and the user has no chats *with a doc*,
+  // augment the empty active chat (or create one) with the preloaded demo doc
+  // so a fresh visitor can ask immediately. Skipped if any chat already has a doc.
   const tryAutoAttachDemo = async () => {
-    if (Object.keys(state.chats).length > 0) return;
+    const chatsWithDocs = Object.values(state.chats).some((c) => c.docId);
+    if (chatsWithDocs) return;
     try {
       const res = await fetch("/demo");
       if (!res.ok) return;
       const body = await res.json();
       if (!body || !body.document_id) return;
-      const chat = createChat();
+      // Prefer reusing an empty active chat; otherwise create a new one.
+      let chat = activeChat();
+      if (!chat || chat.docId || chat.messages.length > 0) {
+        chat = createChat();
+      }
       chat.docId = body.document_id;
       chat.fileName = body.file_name || "demo";
       chat.chunkCount = 0;
