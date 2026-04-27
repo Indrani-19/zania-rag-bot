@@ -44,7 +44,18 @@ def test_check_budget_raises_when_over_cap(tmp_path):
         tracker.check_budget()
 
 
-def test_estimate_unknown_model_raises(tmp_path):
+def test_estimate_unknown_model_raises_on_real_openai(tmp_path, monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config.settings, "openai_base_url", None)
     tracker = CostTracker(log_path=tmp_path / "log.jsonl")
     with pytest.raises(ValueError):
         tracker.estimate("gpt-99-supreme", 100)
+
+
+def test_estimate_unknown_model_returns_zero_when_self_hosted(tmp_path, monkeypatch):
+    from app import config
+
+    monkeypatch.setattr(config.settings, "openai_base_url", "http://localhost:11434/v1")
+    tracker = CostTracker(log_path=tmp_path / "log.jsonl")
+    assert tracker.estimate("some-new-local-model", 100, 50) == 0.0

@@ -1,10 +1,14 @@
 import json
+import logging
 import threading
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 from app.config import settings
+
+
+logger = logging.getLogger(__name__)
 
 
 # Verify against https://openai.com/api/pricing/ — these prices change.
@@ -64,6 +68,12 @@ class CostTracker:
 
     def estimate(self, model: str, input_tokens: int, output_tokens: int = 0) -> float:
         if model not in PRICING:
+            # Local/self-hosted providers (set via OPENAI_BASE_URL) are free — track as $0
+            # with a warning so usage is still recorded. Strict on real OpenAI: a typo in
+            # LLM_MODEL there should raise, not silently track zero.
+            if settings.openai_base_url:
+                logger.warning("cost.unknown_model_treated_as_free model=%r", model)
+                return 0.0
             raise ValueError(f"Unknown model for pricing: {model}")
         prices = PRICING[model]
         return input_tokens * prices["input"] + output_tokens * prices["output"]
