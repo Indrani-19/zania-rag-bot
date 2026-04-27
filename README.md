@@ -14,6 +14,45 @@ Question-answering API over PDF, JSON, or XLSX documents. FastAPI + LangChain + 
 
 Built for the Zania coding challenge.
 
+## 🚀 Live demo
+
+**https://indraniinapakolla-zania-rag-bot.hf.space** — chat UI with `samples/spec_kb.json` already attached, so you can ask the spec's sample questions in one click. Currently powered by Llama 3.1 8B via Groq (free tier, OpenAI-compatible) because the spec's OpenAI key was rate-limited; the canonical default in the codebase is still `gpt-4o-mini`.
+
+GitHub: https://github.com/Indrani-19/zania-rag-bot
+
+## Spec compliance — at a glance
+
+| Spec line | Status | Where |
+|---|---|---|
+| QA bot powered by an LLM | ✅ | `app/core/qa.py` |
+| LangChain framework | ✅ | `langchain-core`, `langchain-text-splitters` |
+| FastAPI / Flask / Django | ✅ | FastAPI, `app/main.py` |
+| Input: JSON questions file + PDF/JSON doc | ✅ | `POST /qa` accepts both as multipart |
+| Output: JSON pairing each question with its answer | ✅ | List of `{question, answer}` — spec example was malformed JSON; the list form preserves duplicate questions and is documented in [Decisions](#decisions) |
+| OpenAI `gpt-4o-mini` | ✅ | Default at `app/config.py:19` |
+| VectorDB | ✅ | Chroma, persisted to `./chroma_db` |
+| Production-quality code: README + tests + deps | ✅ | This README · **90 unit tests** · eval harness · structured errors · cost tracking |
+| ≤ $5 budget | ✅ | `COST_HARD_CAP_USD=4.0`, hard-aborts past it |
+| No keys committed | ✅ | `.env` is gitignored |
+| `gpt-4o-mini` only (no GPT-4 / 16K models) | ✅ | Never references larger models |
+
+## Beyond spec — what I added
+
+The spec is fully satisfied by `POST /qa`. The items below are additive — they make the bot easier to demo, easier to operate, and harder to misuse, without changing the spec contract.
+
+- **Browser chat UI at `/`** — single-page, no build step, ships in the same Docker image. Sidebar persists chats in `localStorage`; per-chat delete on hover.
+- **`.xlsx` ingestion** — the spec's "Sample JSON file" link is actually a Google Sheet; handling xlsx natively skips the manual export step. Each sheet → "page", each row → coherent `[Sheet, row N]` key/value block so questions and their answers stay in the same chunk.
+- **Stateful endpoints** — `POST /documents` + `POST /documents/{id}/questions` let a client re-query a doc without re-embedding (saves cost and latency on the second question onward).
+- **Server-side intent routing** — greetings / help / low-signal input answer in <1 ms with canned responses (no LLM call). Summary and listing requests use broad-fetch retrieval (~30 chunks across the doc) with synthesis-friendly prompts. Factual Q&A stays on the original strict path. See `app/core/qa.py`.
+- **Two-layer hallucination guard** — strict system prompt that says "answer only from context" *plus* a similarity-floor short-circuit (LLM is never called when the best chunk's similarity is below the floor — refusals stay consistent and cost stays predictable).
+- **Eval harness with LLM-as-judge** — `eval/` runs a labeled set against the same code path the API serves, scoring deterministic substring/refusal checks plus faithfulness, relevance, and refusal precision/recall. Captured scorecard: **faithfulness 90%, relevance 90%, refusal recall 100%** on the SOC2 PDF. Exits non-zero on regression — ready to gate CI.
+- **Provider-swap via `OPENAI_BASE_URL`** — same code path runs on OpenAI, Ollama (local dev), Groq (the live demo), or any other OpenAI-compatible API. One env var, no code change.
+- **Local sentence-transformers embedding fallback** — for providers like Groq that don't host embeddings. Set `EMBEDDING_PROVIDER=local` and the bot embeds in-process with `sentence-transformers/all-MiniLM-L6-v2` (~90 MB model, $0/call). Activated automatically on the live demo.
+- **Demo preload** — `DEMO_PRELOAD=true` indexes `samples/spec_kb.json` at startup under a stable `document_id`; the chat UI auto-attaches it on first visit. Reviewer hits the URL → can ask questions immediately, zero friction.
+- **Hugging Face Spaces deploy config** — repo + Dockerfile + `DEPLOY.md` recipe goes from `git push` to public URL in ~5 minutes on free infrastructure (Groq for chat + sentence-transformers for embeddings).
+- **Structured problem-JSON errors** with stable `type` codes (`llm_quota_exhausted`, `scanned_pdf`, `ingestion_error`, `llm_unreachable`, ...) — clients branch on `type`, not English error strings.
+- **Cost tracker** — every LLM/embedding call is logged to `cost_log.jsonl` with model, token counts, and USD. Hard cap aborts requests that would push spend past `COST_HARD_CAP_USD`.
+
 ## Quickstart
 
 ```bash
@@ -22,7 +61,7 @@ cd zania-rag-bot
 cp .env.example .env       # paste your OpenAI key into OPENAI_API_KEY
 ```
 
-Then **either** Docker (one command):
+Then **either** Docker:
 
 ```bash
 docker compose up --build
@@ -35,19 +74,19 @@ make install               # create venv + install deps
 make run                   # uvicorn on :8000
 ```
 
-Service is at `http://localhost:8000` — Swagger UI at `/docs`, browser chat UI at `/`.
+Service is at `http://localhost:8000` — chat UI at `/`, Swagger UI at `/docs`.
 
 ### Run on Llama via Ollama (no OpenAI key)
 
-If your OpenAI key is rate-limited or you want to demo offline, the same code path runs end-to-end on local Llama — `OPENAI_BASE_URL` swaps the provider for both chat and embeddings.
+If your OpenAI key is rate-limited, the same code path runs on local Llama. `OPENAI_BASE_URL` swaps the provider for both chat and embeddings.
 
 ```bash
-brew install ollama && ollama serve &     # macOS; see ollama.com for other OSes
-ollama pull llama3.1:8b                   # chat model
-ollama pull nomic-embed-text              # embedding model
+brew install ollama && ollama serve &
+ollama pull llama3.1:8b
+ollama pull nomic-embed-text
 ```
 
-In `.env`, swap the OpenAI lines for:
+In `.env`:
 
 ```bash
 OPENAI_API_KEY=ollama                     # ignored by Ollama, but the client requires it set
@@ -56,15 +95,13 @@ LLM_MODEL=llama3.1:8b
 EMBEDDING_MODEL=nomic-embed-text
 ```
 
-Then `rm -rf chroma_db` (embedding dim changes 1536 → 768) and `make run`. Same API, $0/call. Cost tracker reports `$0.00` for non-OpenAI base URLs by design.
+Then `rm -rf chroma_db` (embedding dim changes 1536 → 768) and `make run`. Cost tracker reports `$0.00` for non-OpenAI base URLs by design.
 
 ### Public demo (Hugging Face Spaces + Groq)
 
-For a public URL with no local model running, see [`DEPLOY.md`](DEPLOY.md). The TL;DR: chat is served by Groq's hosted Llama (`llama-3.1-8b-instant`, free tier, OpenAI-compatible), embeddings run in-process via `sentence-transformers/all-MiniLM-L6-v2`, and the FastAPI app lives in a Docker Space. Set `DEMO_PRELOAD=true` in the Space secrets to ship `samples/spec_kb.json` pre-indexed so first-time visitors can ask questions without uploading.
+See [`DEPLOY.md`](DEPLOY.md). TL;DR: chat = Groq Llama 3.1 (free, OpenAI-compatible), embeddings = sentence-transformers in-process, app = Docker Space. Set `DEMO_PRELOAD=true` so the spec's sample KB is pre-indexed.
 
 ### Smoke test against the spec's sample inputs
-
-The challenge doc references a sample PDF and a sample JSON KB. Both are wired up:
 
 ```bash
 curl -L -o /tmp/soc2.pdf https://productfruits.com/docs/soc2-type2.pdf
@@ -91,6 +128,8 @@ Captured output for both at [`samples/example_outputs.md`](samples/example_outpu
 | `POST /documents/{id}/questions` | Re-query an indexed document (no re-embedding cost) |
 | `DELETE /documents/{id}` | Remove a document and its embeddings |
 | `GET /health` | Liveness probe |
+| `GET /` | Browser chat UI (not in OpenAPI schema) |
+| `GET /demo` | Returns the preloaded `document_id` when `DEMO_PRELOAD=true`; 404 otherwise |
 
 ### Response shape
 
@@ -115,23 +154,23 @@ All failures return a structured problem response: `{type, title, status, detail
 
 | Status | `type` | When |
 | --- | --- | --- |
-| 402 | `llm_quota_exhausted` / `budget_exceeded` | OpenAI returned `insufficient_quota` / local cap reached |
+| 402 | `llm_quota_exhausted` / `budget_exceeded` | Provider quota / local cap reached |
 | 422 | `validation_error` / `ingestion_error` / `scanned_pdf` / `empty_pdf` | Bad payload, unsupported file, image-only PDF, zero-page PDF |
-| 429 | `llm_rate_limited` | OpenAI per-minute rate limit |
+| 429 | `llm_rate_limited` | Provider per-minute rate limit |
 | 502 / 503 | `llm_upstream_error` / `llm_unreachable` / `llm_auth_failed` | Upstream HTTP error / connection failure / bad API key |
 
 ## Architecture
 
 ```
-PDF / JSON  →  Loader  →  Chunker  →  Embeddings  →  Chroma (persisted)
-                                                          ↓
-                       Question  →  Top-k retrieval  →  Similarity floor
-                                                          ↓
-                            (above)  →  gpt-4o-mini  →  Answer
-                            (below)  →  refusal sentence  (LLM never called)
+PDF / JSON / XLSX  →  Loader  →  Chunker  →  Embeddings  →  Chroma (persisted)
+                                                                ↓
+                             Question  →  Top-k retrieval  →  Similarity floor
+                                                                ↓
+                                  (above)  →  intent classify  →  LLM  →  Answer
+                                  (below)  →  refusal sentence  (LLM never called)
 ```
 
-Two-layer hallucination guard: strict system prompt + similarity-floor short-circuit. Every LLM/embedding call is cost-tracked and budget-capped.
+Every LLM/embedding call is cost-tracked and budget-capped. Each answer is cited back to the chunk(s) it came from when `verbose=true`.
 
 ## Decisions
 
@@ -141,11 +180,13 @@ Two-layer hallucination guard: strict system prompt + similarity-floor short-cir
 | Output is a list of `{question, answer}` objects | Spec example was malformed JSON; a list preserves duplicate questions |
 | `retrieval_score`, not `confidence` | Cosine similarity measures *retrieval relevance*, not *answer correctness* |
 | JSON docs flattened to `key.path: value` lines, then chunked | Preserves structure; arrays past 50 elements are summarized to bound chunk count |
+| XLSX rows kept whole as `[Sheet, row N]` blocks | Question + answer columns stay in the same chunk → retrieval lands on the full Q&A pair |
 | Chroma, persisted to disk | Zero-setup, no cloud account, survives restarts |
 | `uvicorn --workers 1` | Chroma's persistent client isn't safe for multi-process writes |
 | Scanned PDFs detected and rejected with 422 | `pypdf` can't OCR; failing loudly beats mysterious empty answers |
 | LLM mocked in tests by default | Avoids burning the budget on every commit |
 | Provider via `OPENAI_BASE_URL` | One env var routes the whole pipeline through any OpenAI-compatible provider (Ollama, Groq, vLLM, etc.) |
+| Intent routing for greetings/summary/listing | Strict factual prompt + canned-reply fast paths give the right behavior for each question shape without compromising refusal quality |
 | No auth | Coding-challenge scope — documented, not half-implemented |
 
 ## Evaluation harness
@@ -156,39 +197,41 @@ A QA bot you can't measure is a QA bot you can't trust. `eval/` ships a labeled 
 make eval          # runs eval/datasets/soc2.json against /tmp/soc2.pdf
 ```
 
-Scores deterministic substring/refusal checks, faithfulness (claim → context grounding), relevance (on-topic), and refusal precision/recall. Configurable thresholds; CLI exits non-zero on regression. Captured scorecard at [`samples/eval_scorecard.md`](samples/eval_scorecard.md): faithfulness 90%, relevance 90%, refusal recall 100% on the SOC2 PDF.
+Scores deterministic substring/refusal checks, faithfulness (claim → context grounding), relevance (on-topic), and refusal precision/recall. Configurable thresholds; CLI exits non-zero on regression. Captured scorecard at [`samples/eval_scorecard.md`](samples/eval_scorecard.md): **faithfulness 90%, relevance 90%, refusal recall 100%** on the SOC2 PDF.
 
 ## Cost
 
-Every LLM/embedding call is logged to `cost_log.jsonl`. `COST_HARD_CAP_USD` (default `$4`) aborts any request that would push spend over the cap. Typical end-to-end run: ~$0.005.
+Every LLM/embedding call is logged to `cost_log.jsonl`. `COST_HARD_CAP_USD` (default `$4`) aborts any request that would push spend over the cap. Typical end-to-end run on `gpt-4o-mini`: ~$0.005.
 
 ## Testing
 
 ```bash
-make test          # 34 unit tests, all mocked, no API calls
+make test          # 90 unit tests, all mocked, no API calls
 make lint          # ruff
 ```
 
-CI runs both on every push (`.github/workflows/ci.yml`).
+Coverage includes the refusal logic, intent classifiers, ingestion edge cases (scanned PDFs, malformed JSON, empty xlsx rows, missing headers), the full error-mapping table, and the chat UI route. CI runs both on every push (`.github/workflows/ci.yml`).
 
 ## Project layout
 
 ```
 app/
-  main.py        # FastAPI app + exception handlers
-  config.py      # Pydantic settings
+  main.py        # FastAPI app, exception handlers, demo-preload startup hook
+  config.py      # Pydantic settings (incl. embedding_provider, demo_preload)
   api/           # HTTP routes
-  core/          # Ingestion, embedding, retrieval, QA, vector store
+  core/          # Ingestion, embedding (OpenAI + local), retrieval, QA, vector store
   models/        # Request/response schemas
   utils/         # Cost tracking
+  static/        # index.html — chat UI mounted at GET /
 eval/            # Labeled questions + scoring harness
-samples/         # Spec sample inputs + captured outputs
-tests/           # Mocked unit tests
+samples/         # Spec sample inputs + captured outputs + eval scorecard
+tests/           # 90 mocked unit tests
+DEPLOY.md        # HF Spaces + Groq deploy recipe
 ```
 
 ## Extending to new file types
 
-Currently supported: `.pdf`, `.json`, and `.xlsx` (one sheet per "page", rows rendered as `[Sheet, row N]` key/value blocks so a question and its answer stay in the same chunk). The pipeline is `bytes → text/pages → chunks → embeddings → Chroma` — adding a format is one loader.
+Currently supported: `.pdf`, `.json`, `.xlsx`. The pipeline is `bytes → text/pages → chunks → embeddings → Chroma` — adding a format is one loader.
 
 **Pattern:**
 
@@ -213,39 +256,41 @@ Currently supported: `.pdf`, `.json`, and `.xlsx` (one sheet per "page", rows re
 - Local: `pytesseract` + `pdf2image` for PDFs, `pytesseract` + `Pillow` for images
 - Cloud: AWS Textract / Azure Document Intelligence / Google Document AI — much higher accuracy on real-world layouts
 
-**For production at scale:** [`unstructured.io`](https://unstructured.io) is the right answer — one library, 20+ formats, layout-aware extraction, table parsing, optional OCR. It would replace most of `app/core/ingestion.py` with a single `partition()` call.
+**For production at scale:** [`unstructured.io`](https://unstructured.io) — one library, 20+ formats, layout-aware extraction, table parsing, optional OCR. Replaces most of `app/core/ingestion.py` with a single `partition()` call.
 
-## Scaling to production
+## Scaling to production — what comes next
 
 This is a coding-challenge submission, not a production deployment. Code patterns are right; operational scaffolding isn't. Concrete gaps, ranked by what breaks first:
 
-**Tier 1 — breaks first under load**
+**Tier 1 — breaks first under load (~1 week)**
 
 - `uvicorn --workers 1` is a hard ceiling. Chroma's persistent client isn't multi-process safe. Fix: Chroma server mode (or Qdrant / pgvector), then scale workers.
 - Sync ingestion blocks the request thread on big PDFs. Fix: background job queue (Celery / RQ / ARQ); `POST /documents` returns a `job_id`.
-- Top-k cosine misses cover-page facts and collapses on near-identical array items. Fix: hybrid BM25 + dense, optionally re-rank with a cross-encoder.
+- **Top-k cosine misses cover-page facts and collapses on near-identical array items.** Fix: hybrid BM25 + dense retrieval, optionally cross-encoder rerank. *(This is the fix for the multi-part-question retrieval misses you may notice during the demo.)*
 - Upload size check runs *after* the full file is read into memory. Fix: stream + check incrementally.
 
-**Tier 2 — hardening before external customers**
+**Tier 2 — hardening before external customers (~2 weeks)**
 
 - No auth → trivial cost-bomb. Fix: API keys per tenant + `slowapi` rate-limit middleware.
 - All docs in one Chroma collection → one filter bug = cross-tenant leak. Fix: collection-per-tenant or row-level security.
 - Cost tracker is in-process → multi-instance = N × budget. Fix: Redis/Postgres counter with atomic increments.
 - No data retention → uploaded docs persist forever. GDPR risk. Fix: TTL + `DELETE /tenants/{id}` cascade.
 - Pricing table goes stale silently. Fix: pull from versioned config or OpenAI billing API.
+- **Conversation history / multi-turn pronoun resolution** — chat UI exists but each question is independent right now. Fix: send last 2-3 turns to a server-side LLM rewrite step that produces a self-contained query, then run RAG.
 
-**Tier 3 — operational scaffolding**
+**Tier 3 — operational scaffolding (~1 week)**
 
 - No structured logs / metrics. Fix: JSON logs with `contextvars`-propagated `request_id`, Prometheus middleware.
 - No circuit breaker on the LLM provider. Fix: `circuitbreaker` lib around `chat_completion` / `embed_texts`.
 - No prompt versioning. Fix: prompt registry (Langfuse / PromptLayer / versioned YAML).
 - Eval harness exists but isn't gating CI. Fix: CI step running `make eval` against a fixed doc.
+- HF Spaces free tier doesn't persist storage between cold starts. Fix: enable persistent storage on the Space (paid) and set `CHROMA_PERSIST_DIR=/data/chroma_db`, OR move to Render/Fly with a real volume.
 
 **Out of scope (deliberate, not scaling)**
 
-Streaming responses · multi-document corpus queries · conversation history · OCR fallback for scanned PDFs.
+Streaming responses · multi-document corpus queries · OCR fallback for scanned PDFs.
 
-**Effort estimate:** ~1 week for Tier 1, ~2 weeks for Tier 2, ~1 week minimum for Tier 3. Roughly **2-3 weeks for an internal beta, ~6 weeks for external customers**.
+**Effort estimate:** roughly **2–3 weeks for an internal beta, ~6 weeks for external customers**.
 
 ## License
 
