@@ -221,9 +221,57 @@ samples/         # Spec-provided sample question set
 tests/           # Mocked unit tests
 ```
 
-## Out of scope (intentional)
+## Scaling to production
 
-Streaming responses · multi-document corpus queries · conversation history · hybrid retrieval (BM25 + dense) · re-ranker · auth / rate limiting · cloud deployment.
+This is a coding-challenge submission, not a production deployment. The code patterns are right; the operational scaffolding isn't there. Below are the concrete gaps, ranked by what breaks first under real load — each with the specific fix.
+
+### Tier 1 — what breaks first under load
+
+| Gap | Why it breaks | Fix |
+| --- | --- | --- |
+| `uvicorn --workers 1` | Chroma's persistent client is not safe for multi-process writes against the same on-disk dir. One worker = ~1 CPU of throughput. | Move to Chroma **server** mode (or swap to Qdrant / pgvector), then scale workers horizontally. |
+| Sync ingestion blocks the request thread | A 50 MB PDF ties up a worker for ~15s of embedding work. | Background job queue (Celery / RQ / ARQ). `POST /documents` returns a `job_id`; client polls. |
+| Retrieval quality on cover pages + repetitive structured data | Top-k cosine misses isolated facts (e.g. SOC2 cover page) and collapses on near-identical array items. | Hybrid retrieval: BM25 + dense, optionally re-ranked with a cross-encoder. |
+| File reads load fully into memory before size check | A 1 GB upload OOMs the worker before the 50 MB cap fires. | Stream the upload, check size incrementally, reject early. |
+
+### Tier 2 — needs hardening before external customers
+
+| Gap | Risk | Fix |
+| --- | --- | --- |
+| No auth | Anyone with the URL drains your OpenAI budget. Trivial DoS / cost-bomb. | API keys per tenant + `slowapi` rate-limit middleware. |
+| No multi-tenancy isolation | All docs share one Chroma collection separated by a `document_id` filter. One filter bug = cross-tenant leak. | Collection-per-tenant, or row-level security at the storage layer. |
+| Cost tracker is in-process | Each instance has its own counter — multi-instance = N × budget. | Move counter to Redis / Postgres with atomic increments. |
+| No data retention policy | Uploaded docs persist forever in `chroma_db/`. GDPR risk. | TTL on uploads + a `DELETE /tenants/{id}` cascade. |
+| Secrets in `.env` | Fine for dev, leaks in prod. | Vault / AWS Secrets Manager / 1Password Connect. |
+| Hard-coded pricing table | Goes stale silently when OpenAI changes prices. | Pull from a versioned pricing config or the OpenAI billing API. |
+
+### Tier 3 — operational scaffolding
+
+| Gap | Pain in prod | Fix |
+| --- | --- | --- |
+| No structured logs | Can't correlate a stack trace to a request in prod. `request_id` is *generated* but not threaded through `logger` calls. | JSON log formatter + correlation-id propagation via `contextvars`. |
+| No metrics | No visibility into p99 latency, qps, error rate. | Prometheus middleware (`starlette-prometheus`) + Grafana dashboard. |
+| No circuit breaker on the LLM provider | OpenAI's 5-min degradation = 5 min of cascading 503s. | `circuitbreaker` lib around `chat_completion` / `embed_texts`. |
+| No prompt versioning | System prompt is a string in code. Can't A/B test or roll back. | Prompt registry (Langfuse / PromptLayer / a versioned YAML). |
+| Eval harness not in CI | The harness exists but a regression in faithfulness wouldn't block a PR. | Add a CI job that runs `make eval` against a fixed doc and asserts thresholds. |
+| Single-region deploy | No DR. | Multi-region behind a load balancer; vector DB needs region replication too. |
+
+### Deliberately out of scope (not a scaling concern)
+
+Excluded to keep the build focused — would be reasonable feature work, not infra:
+
+- Streaming responses (~40 lines for an SSE endpoint, UX win)
+- Multi-document corpus queries (cross-doc RAG)
+- Conversation history / follow-up questions (session state)
+- OCR fallback for scanned PDFs (Tesseract / Adobe Extract)
+
+### Effort estimate
+
+Closing **Tier 1** (single-instance bottlenecks): ~1 week.
+Closing **Tier 2** (multi-tenant safety): ~2 weeks.
+Closing **Tier 3** (ops): ongoing — minimum ~1 week to get logs + metrics + a circuit breaker.
+
+So roughly **2-3 weeks for an internal beta, ~6 weeks for external customers**.
 
 ## License
 
