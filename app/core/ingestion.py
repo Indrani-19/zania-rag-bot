@@ -3,9 +3,12 @@ import logging
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from zipfile import BadZipFile
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from openpyxl import load_workbook
+from openpyxl.utils.exceptions import InvalidFileException
 from pypdf import PdfReader
 
 from app.config import settings
@@ -82,6 +85,62 @@ def load_json(content: bytes) -> str:
     return "\n".join(flatten_json(data))
 
 
+def load_xlsx(content: bytes) -> list[tuple[int, str]]:
+    """Load .xlsx into (sheet_index, text) blocks. One sheet per "page".
+
+    Each non-empty data row is rendered as a labeled key/value block using the
+    first row as headers, e.g.:
+
+        [Sheet1, row 2]
+        question: Where are your data centres located?
+        answer: Our data centers are located in the US Central region...
+
+    Keeping rows together as units (rather than column-flattening) preserves
+    Q&A semantics for retrieval — a question and its answer stay in the same chunk.
+    """
+    try:
+        wb = load_workbook(BytesIO(content), data_only=True, read_only=True)
+    except (InvalidFileException, BadZipFile, KeyError, ValueError) as e:
+        raise IngestionError(f"Invalid xlsx: {e}") from e
+
+    if not wb.sheetnames:
+        raise IngestionError("xlsx has no sheets")
+
+    sheets: list[tuple[int, str]] = []
+    for sheet_idx, sheet_name in enumerate(wb.sheetnames, start=1):
+        ws = wb[sheet_name]
+        rows_iter = ws.iter_rows(values_only=True)
+        try:
+            header_row = next(rows_iter)
+        except StopIteration:
+            continue
+
+        headers: list[str] = []
+        for i, cell in enumerate(header_row, start=1):
+            label = "" if cell is None else str(cell).strip()
+            headers.append(label or f"col{i}")
+
+        blocks: list[str] = []
+        for row_idx, row in enumerate(rows_iter, start=2):
+            kv_lines: list[str] = []
+            for header, value in zip(headers, row):
+                if value is None:
+                    continue
+                if isinstance(value, str) and not value.strip():
+                    continue
+                kv_lines.append(f"{header}: {value}")
+            if kv_lines:
+                blocks.append(f"[{sheet_name}, row {row_idx}]\n" + "\n".join(kv_lines))
+
+        if blocks:
+            sheets.append((sheet_idx, "\n\n".join(blocks)))
+
+    if not sheets:
+        raise IngestionError("xlsx has no data rows")
+
+    return sheets
+
+
 def _splitter() -> RecursiveCharacterTextSplitter:
     return RecursiveCharacterTextSplitter(
         chunk_size=settings.chunk_size,
@@ -124,8 +183,16 @@ def ingest(content: bytes, filename: str) -> list[Document]:
     elif suffix == ".json":
         flattened = load_json(content)
         documents = chunk_json_text(flattened, source=filename)
+    elif suffix == ".xlsx":
+        # Sheet index is reused as the "page" metadata so verbose responses
+        # cite "Page 1" = "Sheet 1" for xlsx. chunk_pdf_pages is generic over
+        # (int, text) pairs — the name is just historical.
+        sheets = load_xlsx(content)
+        documents = chunk_pdf_pages(sheets, source=filename)
     else:
-        raise IngestionError(f"Unsupported file type: {suffix}. Supported: .pdf, .json")
+        raise IngestionError(
+            f"Unsupported file type: {suffix}. Supported: .pdf, .json, .xlsx"
+        )
 
     logger.info(
         "Ingested %s: %d chunks (suffix=%s, bytes=%d)",

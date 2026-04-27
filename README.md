@@ -1,6 +1,6 @@
 # Zania RAG Bot
 
-Question-answering API over PDF or JSON documents. FastAPI + LangChain + Chroma + OpenAI `gpt-4o-mini`.
+Question-answering API over PDF, JSON, or XLSX documents. FastAPI + LangChain + Chroma + OpenAI `gpt-4o-mini`.
 
 Built for the Zania coding challenge.
 
@@ -25,7 +25,28 @@ make install               # create venv + install deps
 make run                   # uvicorn on :8000
 ```
 
-Service is at `http://localhost:8000` — Swagger UI at `/docs`.
+Service is at `http://localhost:8000` — Swagger UI at `/docs`, browser chat UI at `/`.
+
+### Run on Llama via Ollama (no OpenAI key)
+
+If your OpenAI key is rate-limited or you want to demo offline, the same code path runs end-to-end on local Llama — `OPENAI_BASE_URL` swaps the provider for both chat and embeddings.
+
+```bash
+brew install ollama && ollama serve &     # macOS; see ollama.com for other OSes
+ollama pull llama3.1:8b                   # chat model
+ollama pull nomic-embed-text              # embedding model
+```
+
+In `.env`, swap the OpenAI lines for:
+
+```bash
+OPENAI_API_KEY=ollama                     # ignored by Ollama, but the client requires it set
+OPENAI_BASE_URL=http://localhost:11434/v1
+LLM_MODEL=llama3.1:8b
+EMBEDDING_MODEL=nomic-embed-text
+```
+
+Then `rm -rf chroma_db` (embedding dim changes 1536 → 768) and `make run`. Same API, $0/call. Cost tracker reports `$0.00` for non-OpenAI base URLs by design.
 
 ### Smoke test against the spec's sample inputs
 
@@ -153,7 +174,7 @@ tests/           # Mocked unit tests
 
 ## Extending to new file types
 
-Currently supported: `.pdf` and `.json`. The pipeline is `bytes → text/pages → chunks → embeddings → Chroma` — adding a format is one loader.
+Currently supported: `.pdf`, `.json`, and `.xlsx` (one sheet per "page", rows rendered as `[Sheet, row N]` key/value blocks so a question and its answer stay in the same chunk). The pipeline is `bytes → text/pages → chunks → embeddings → Chroma` — adding a format is one loader.
 
 **Pattern:**
 
@@ -166,7 +187,6 @@ Currently supported: `.pdf` and `.json`. The pipeline is `bytes → text/pages �
 | Format | Library | Notes |
 | --- | --- | --- |
 | `.docx` | `python-docx` | Iterate paragraphs; tables need explicit handling |
-| `.xlsx` | `openpyxl` | One sheet per "page"; rows → flat key:value lines |
 | `.csv` | stdlib `csv` | Same flatten-as-key:value treatment |
 | `.html` | `beautifulsoup4` | `.get_text(separator='\n')` after stripping `<nav>`/`<footer>` |
 | `.md` | none needed | Read as text; consider `MarkdownTextSplitter` for header-aware chunking |
