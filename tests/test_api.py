@@ -1,0 +1,150 @@
+import json
+from unittest.mock import AsyncMock, patch
+
+import httpx
+import openai
+import pytest
+from fastapi.testclient import TestClient
+
+from app.main import app
+
+
+@pytest.fixture
+def client():
+    return TestClient(app)
+
+
+def test_health_returns_ok(client):
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def _fake_embedding(_texts: list[str]) -> list[list[float]]:
+    # Returns a deterministic 1536-dim vector per call (matches text-embedding-3-small dims).
+    return [[0.001] * 1536 for _ in _texts]
+
+
+def test_qa_endpoint_returns_answers_with_mocked_llm(client):
+    with (
+        patch(
+            "app.core.vectorstore.embed_texts",
+            AsyncMock(side_effect=lambda texts, **_kw: _fake_embedding(texts)),
+        ),
+        patch(
+            "app.core.retriever.embed_texts",
+            AsyncMock(side_effect=lambda texts, **_kw: _fake_embedding(texts)),
+        ),
+        patch(
+            "app.core.qa.chat_completion",
+            AsyncMock(return_value="The retention period is 90 days."),
+        ),
+    ):
+        document_payload = json.dumps({"policy": "Retention period is 90 days."}).encode()
+        questions_payload = json.dumps(["What is the retention period?"]).encode()
+
+        response = client.post(
+            "/qa",
+            files={
+                "document": ("policy.json", document_payload, "application/json"),
+                "questions": ("questions.json", questions_payload, "application/json"),
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert isinstance(body, list)
+    assert body[0]["question"] == "What is the retention period?"
+    assert body[0]["answer"] == "The retention period is 90 days."
+    assert "sources" not in body[0]
+    assert "retrieval_score" not in body[0]
+
+
+def test_qa_endpoint_verbose_includes_sources(client):
+    with (
+        patch(
+            "app.core.vectorstore.embed_texts",
+            AsyncMock(side_effect=lambda texts, **_kw: _fake_embedding(texts)),
+        ),
+        patch(
+            "app.core.retriever.embed_texts",
+            AsyncMock(side_effect=lambda texts, **_kw: _fake_embedding(texts)),
+        ),
+        patch(
+            "app.core.qa.chat_completion",
+            AsyncMock(return_value="42 days."),
+        ),
+    ):
+        doc = json.dumps({"policy": "Retention is 42 days."}).encode()
+        qs = json.dumps({"questions": ["how long?"]}).encode()
+
+        response = client.post(
+            "/qa?verbose=true",
+            files={
+                "document": ("policy.json", doc, "application/json"),
+                "questions": ("questions.json", qs, "application/json"),
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert "sources" in body[0]
+    assert "retrieval_score" in body[0]
+
+
+def _fake_request() -> httpx.Request:
+    return httpx.Request("POST", "https://api.openai.com/v1/embeddings")
+
+
+def _fake_response(status: int, body: dict) -> httpx.Response:
+    return httpx.Response(status_code=status, json=body, request=_fake_request())
+
+
+def test_qa_returns_402_when_openai_quota_exhausted(client):
+    quota_body = {
+        "error": {
+            "message": "You exceeded your current quota.",
+            "type": "insufficient_quota",
+            "code": "insufficient_quota",
+        }
+    }
+    err = openai.RateLimitError(
+        "quota exhausted",
+        response=_fake_response(429, quota_body),
+        body=quota_body,
+    )
+    with patch(
+        "app.core.vectorstore.embed_texts",
+        AsyncMock(side_effect=err),
+    ):
+        response = client.post(
+            "/qa",
+            files={
+                "document": ("p.json", b'{"x":"y"}', "application/json"),
+                "questions": ("q.json", b'["q?"]', "application/json"),
+            },
+        )
+
+    assert response.status_code == 402, response.text
+    body = response.json()
+    assert body["type"] == "llm_quota_exhausted"
+    assert body["status"] == 402
+    assert "insufficient_quota" in body["detail"]
+
+
+def test_qa_returns_503_when_openai_unreachable(client):
+    err = openai.APIConnectionError(message="connect failed", request=_fake_request())
+    with patch(
+        "app.core.vectorstore.embed_texts",
+        AsyncMock(side_effect=err),
+    ):
+        response = client.post(
+            "/qa",
+            files={
+                "document": ("p.json", b'{"x":"y"}', "application/json"),
+                "questions": ("q.json", b'["q?"]', "application/json"),
+            },
+        )
+
+    assert response.status_code == 503, response.text
+    assert response.json()["type"] == "llm_unreachable"

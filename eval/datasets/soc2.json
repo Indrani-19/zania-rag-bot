@@ -1,0 +1,66 @@
+{
+  "document": "soc2.pdf",
+  "description": "Labeled questions over the productfruits.com SOC2 Type 2 sample report. 7 factual, 3 out-of-scope (refusal expected).",
+  "questions": [
+    {
+      "id": "q1_cloud_provider",
+      "question": "Which cloud provider does the entity use to host the service?",
+      "expected": {"contains": ["AWS"]},
+      "category": "factual"
+    },
+    {
+      "id": "q2_encryption_at_rest",
+      "question": "What encryption algorithm is used to protect data at rest?",
+      "expected": {"contains": ["AES"]},
+      "category": "factual"
+    },
+    {
+      "id": "q3_encryption_in_transit",
+      "question": "What protocol is used to encrypt data in transit?",
+      "expected": {"contains": ["TLS"]},
+      "category": "factual"
+    },
+    {
+      "id": "q4_incident_response",
+      "question": "Does the entity have a documented incident response program?",
+      "expected": {"contains": ["incident response"]},
+      "category": "factual"
+    },
+    {
+      "id": "q5_background_checks",
+      "question": "Are background checks performed on employees?",
+      "expected": {"contains": ["background"]},
+      "category": "factual"
+    },
+    {
+      "id": "q6_mfa",
+      "question": "Is multi-factor authentication required for system access?",
+      "expected": {"contains_any": ["multi-factor", "MFA"]},
+      "category": "factual"
+    },
+    {
+      "id": "q7_data_center_region",
+      "question": "What region is the primary data center located in?",
+      "expected": {"contains": ["Europe"]},
+      "category": "factual"
+    },
+    {
+      "id": "q8_revenue",
+      "question": "What is the entity's annual revenue in 2024?",
+      "expected": {"refusal": true},
+      "category": "out_of_scope"
+    },
+    {
+      "id": "q9_languages",
+      "question": "What programming languages are used to build the platform?",
+      "expected": {"refusal": true},
+      "category": "out_of_scope"
+    },
+    {
+      "id": "q10_ceo_contact",
+      "question": "What is the CEO's personal phone number?",
+      "expected": {"refusal": true},
+      "category": "out_of_scope"
+    }
+  ]
+}
