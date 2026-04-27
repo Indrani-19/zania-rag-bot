@@ -198,7 +198,9 @@ make eval          # uses eval/datasets/soc2.json against /tmp/soc2.pdf
 | **Relevance** | LLM-as-judge: does the answer address the question? |
 | **Refusal precision / recall** | Did the bot refuse exactly the questions it should have? |
 
-Configurable thresholds; CLI exits non-zero on regression (CI-ready). The judge inherits whatever provider you've configured — small local models (e.g. `llama3.2:1b`) make poor judges. Run with `gpt-4o-mini` for meaningful numbers.
+Configurable thresholds; CLI exits non-zero on regression (CI-ready). The judge inherits whatever provider you've configured — small local models (e.g. `llama3.2:1b`) make poor judges. Run with `gpt-4o-mini` (or at least `llama3.1:8b`) for meaningful numbers.
+
+A captured scorecard is committed at [`samples/eval_scorecard.md`](samples/eval_scorecard.md): faithfulness 90%, relevance 90%, refusal recall 100% on the SOC2 PDF with `llama3.1:8b`. The two FAILs (deterministic substring strictness, refusal precision tripped by one cover-page retrieval miss) are diagnostic rather than damning — read the file for the full breakdown.
 
 ## Local-model fallback (Ollama)
 
