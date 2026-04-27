@@ -132,6 +132,18 @@ def test_qa_returns_402_when_openai_quota_exhausted(client):
     assert "insufficient_quota" in body["detail"]
 
 
+def test_qa_rejects_blank_question(client):
+    response = client.post(
+        "/qa",
+        files={
+            "document": ("p.json", b'{"x":"y"}', "application/json"),
+            "questions": ("q.json", b'["valid?", "   "]', "application/json"),
+        },
+    )
+    assert response.status_code == 422
+    assert "empty" in response.text.lower() or "whitespace" in response.text.lower()
+
+
 def test_qa_returns_503_when_openai_unreachable(client):
     err = openai.APIConnectionError(message="connect failed", request=_fake_request())
     with patch(

@@ -3,6 +3,7 @@ import logging
 import openai
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
 from app.api import documents, qa
 from app.config import settings
@@ -57,6 +58,13 @@ async def _empty_pdf_handler(request: Request, exc: EmptyPdfError) -> JSONRespon
 @app.exception_handler(IngestionError)
 async def _ingestion_handler(request: Request, exc: IngestionError) -> JSONResponse:
     return _problem(422, "ingestion_error", "Could not parse uploaded document", str(exc))
+
+
+@app.exception_handler(ValidationError)
+async def _validation_handler(request: Request, exc: ValidationError) -> JSONResponse:
+    # Body validation done via model_validate (multipart paths) bypasses FastAPI's
+    # auto 422 — surface those as 422 too instead of leaking a 500.
+    return _problem(422, "validation_error", "Request payload failed validation", str(exc))
 
 
 def _extract_openai_error(exc: openai.APIStatusError) -> tuple[str | None, str]:

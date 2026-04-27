@@ -5,12 +5,13 @@ import pytest
 
 from app.core.qa import INSUFFICIENT_CONTEXT_ANSWER, Answer, Source
 from eval.metrics import (
+    CheckResult,
     check_contains,
     check_contains_any,
     check_refusal,
     evaluate_expected,
 )
-from eval.runner import EvalReport, QuestionResult, Thresholds, report_passes
+from eval.runner import EvalReport, QuestionResult, Thresholds, report_passes, run_eval
 
 
 def test_check_contains_passes_when_all_substrings_present():
@@ -41,7 +42,6 @@ def test_evaluate_expected_dispatches_by_key():
 
 
 def _result(category: str, deterministic_pass: bool, faith: str, rel: str) -> QuestionResult:
-    from eval.metrics import CheckResult
     return QuestionResult(
         id="x", question="?", category=category, answer="x",
         deterministic=CheckResult("contains", deterministic_pass, ""),
@@ -84,8 +84,6 @@ def test_report_passes_when_all_metrics_above_threshold():
 
 @pytest.mark.asyncio
 async def test_runner_end_to_end_with_mocked_qa_and_judges(tmp_path):
-    from eval.runner import run_eval
-
     dataset = {
         "document": "doc.json",
         "questions": [

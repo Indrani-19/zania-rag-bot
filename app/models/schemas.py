@@ -1,6 +1,6 @@
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class QuestionsPayload(BaseModel):
@@ -12,6 +12,14 @@ class QuestionsPayload(BaseModel):
         if isinstance(data, list):
             return {"questions": data}
         return data
+
+    @field_validator("questions")
+    @classmethod
+    def reject_blank_questions(cls, qs: list[str]) -> list[str]:
+        cleaned = [q.strip() for q in qs]
+        if any(not q for q in cleaned):
+            raise ValueError("questions must not be empty or whitespace-only")
+        return cleaned
 
 
 class SourceCitation(BaseModel):
