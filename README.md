@@ -63,13 +63,76 @@ curl -X POST http://localhost:8000/qa \
 | `DELETE /documents/{id}` | Remove a document and its embeddings |
 | `GET /health` | Liveness probe |
 
-## Output
+## Responses
+
+**`POST /qa`** and **`POST /documents/{id}/questions`** return a list of question/answer pairs:
 
 ```json
-[{"question": "What is X?", "answer": "X is..."}]
+[
+  {"question": "Which cloud providers do you rely on?", "answer": "AWS."}
+]
 ```
 
-Add `?verbose=true` to also get `sources` (page snippets) and `retrieval_score` (cosine similarity of best chunk).
+Pass `?verbose=true` for source page snippets and the retrieval score of the best chunk:
+
+```json
+[
+  {
+    "question": "Which cloud providers do you rely on?",
+    "answer": "AWS.",
+    "sources": [{"page": 12, "snippet": "...hosted on Amazon Web Services..."}],
+    "retrieval_score": 0.81
+  }
+]
+```
+
+**`POST /documents`** returns the indexing receipt:
+
+```json
+{
+  "document_id": "37cd80a8-88c3-4ac7-a713-58f2ba9c01be",
+  "chunk_count": 194,
+  "estimated_cost_usd": 0.0005
+}
+```
+
+**`DELETE /documents/{id}`**:
+
+```json
+{"document_id": "37cd80a8-88c3-4ac7-a713-58f2ba9c01be", "deleted_chunks": 194}
+```
+
+**`GET /health`**:
+
+```json
+{"status": "ok"}
+```
+
+### Errors
+
+Errors return a structured problem response (RFC 7807-style) — the same shape across every failure mode:
+
+```json
+{
+  "type": "llm_quota_exhausted",
+  "title": "LLM provider quota exhausted",
+  "status": 402,
+  "detail": "Upstream returned insufficient_quota: ..."
+}
+```
+
+| Status | `type` | When |
+| --- | --- | --- |
+| 402 | `llm_quota_exhausted` | OpenAI returned `insufficient_quota` |
+| 402 | `budget_exceeded` | Local cost cap reached before the request would have spent |
+| 422 | `validation_error` | Request body failed Pydantic validation (e.g., empty question) |
+| 422 | `ingestion_error` | Unsupported file extension |
+| 422 | `scanned_pdf` | PDF has pages but no extractable text (image-only) |
+| 422 | `empty_pdf` | PDF has zero pages |
+| 429 | `llm_rate_limited` | OpenAI rate-limited the request (per-minute) |
+| 502 | `llm_upstream_error` | OpenAI returned an unexpected HTTP status |
+| 503 | `llm_unreachable` | Could not connect to the LLM provider |
+| 503 | `llm_auth_failed` | LLM provider rejected the API key (server-side credential issue) |
 
 ## Architecture
 
