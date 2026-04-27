@@ -29,59 +29,37 @@ Service is at `http://localhost:8000` — Swagger UI at `/docs`.
 
 ### Smoke test against the spec's sample inputs
 
-The challenge doc references a sample SOC2 PDF and 5 sample questions. The questions are committed at `samples/spec_questions.json`; fetch the PDF and run:
+The challenge doc references a sample PDF and a sample JSON KB. Both are wired up:
 
 ```bash
 curl -L -o /tmp/soc2.pdf https://productfruits.com/docs/soc2-type2.pdf
 
-curl -X POST http://localhost:8000/qa \
+# PDF run
+curl -X POST "http://localhost:8000/qa?verbose=true" \
   -F "document=@/tmp/soc2.pdf" \
   -F "questions=@samples/spec_questions.json"
-```
 
-Add `?verbose=true` to also see the source page snippets and retrieval scores.
-
-The spec also references a sample JSON file (a Google Sheet of Q&A entries). Exported and committed at `samples/spec_kb.json`:
-
-```bash
-curl -X POST http://localhost:8000/qa \
+# JSON KB run (same questions, different doc → different answers)
+curl -X POST "http://localhost:8000/qa?verbose=true" \
   -F "document=@samples/spec_kb.json" \
   -F "questions=@samples/spec_questions.json"
 ```
 
-Captured runs against **both** sample inputs (PDF and JSON) are committed at [`samples/example_outputs.md`](samples/example_outputs.md). The same questions yield different answers (AWS/Europe vs GCP/US) because the bot is grounded in each document — proof that retrieval is working, not training-data recall.
-
-### Smoke test with your own files
-
-```bash
-curl -X POST http://localhost:8000/qa \
-  -F "document=@your.pdf" \
-  -F 'questions=@questions.json'
-```
-
-`questions.json` accepts either `["q1", "q2"]` or `{"questions": ["q1", "q2"]}`.
+Captured output for both at [`samples/example_outputs.md`](samples/example_outputs.md). The PDF answers AWS / Europe; the JSON KB answers GCP / US — same bot, same questions, different docs. That's grounded retrieval working, not training-data recall.
 
 ## API
 
 | Endpoint | Purpose |
 | --- | --- |
-| `POST /qa` | One-shot: upload a document + questions, get answers (matches the spec example) |
+| `POST /qa` | One-shot: upload a document + questions, get answers |
 | `POST /documents` | Index a document, return a `document_id` |
 | `POST /documents/{id}/questions` | Re-query an indexed document (no re-embedding cost) |
 | `DELETE /documents/{id}` | Remove a document and its embeddings |
 | `GET /health` | Liveness probe |
 
-## Responses
+### Response shape
 
-**`POST /qa`** and **`POST /documents/{id}/questions`** return a list of question/answer pairs:
-
-```json
-[
-  {"question": "Which cloud providers do you rely on?", "answer": "AWS."}
-]
-```
-
-Pass `?verbose=true` for source page snippets and the retrieval score of the best chunk:
+`POST /qa` and `POST /documents/{id}/questions` return a list of question/answer pairs. Add `?verbose=true` for source page snippets and the retrieval similarity score:
 
 ```json
 [
@@ -94,53 +72,18 @@ Pass `?verbose=true` for source page snippets and the retrieval score of the bes
 ]
 ```
 
-**`POST /documents`** returns the indexing receipt:
-
-```json
-{
-  "document_id": "37cd80a8-88c3-4ac7-a713-58f2ba9c01be",
-  "chunk_count": 194,
-  "estimated_cost_usd": 0.0005
-}
-```
-
-**`DELETE /documents/{id}`**:
-
-```json
-{"document_id": "37cd80a8-88c3-4ac7-a713-58f2ba9c01be", "deleted_chunks": 194}
-```
-
-**`GET /health`**:
-
-```json
-{"status": "ok"}
-```
+`POST /documents` returns `{document_id, chunk_count, estimated_cost_usd}`. `DELETE` returns `{document_id, deleted_chunks}`. Full schemas at `/docs`.
 
 ### Errors
 
-Errors return a structured problem response (RFC 7807-style) — the same shape across every failure mode:
-
-```json
-{
-  "type": "llm_quota_exhausted",
-  "title": "LLM provider quota exhausted",
-  "status": 402,
-  "detail": "Upstream returned insufficient_quota: ..."
-}
-```
+All failures return a structured problem response: `{type, title, status, detail}`.
 
 | Status | `type` | When |
 | --- | --- | --- |
-| 402 | `llm_quota_exhausted` | OpenAI returned `insufficient_quota` |
-| 402 | `budget_exceeded` | Local cost cap reached before the request would have spent |
-| 422 | `validation_error` | Request body failed Pydantic validation (e.g., empty question) |
-| 422 | `ingestion_error` | Unsupported file extension |
-| 422 | `scanned_pdf` | PDF has pages but no extractable text (image-only) |
-| 422 | `empty_pdf` | PDF has zero pages |
-| 429 | `llm_rate_limited` | OpenAI rate-limited the request (per-minute) |
-| 502 | `llm_upstream_error` | OpenAI returned an unexpected HTTP status |
-| 503 | `llm_unreachable` | Could not connect to the LLM provider |
-| 503 | `llm_auth_failed` | LLM provider rejected the API key (server-side credential issue) |
+| 402 | `llm_quota_exhausted` / `budget_exceeded` | OpenAI returned `insufficient_quota` / local cap reached |
+| 422 | `validation_error` / `ingestion_error` / `scanned_pdf` / `empty_pdf` | Bad payload, unsupported file, image-only PDF, zero-page PDF |
+| 429 | `llm_rate_limited` | OpenAI per-minute rate limit |
+| 502 / 503 | `llm_upstream_error` / `llm_unreachable` / `llm_auth_failed` | Upstream HTTP error / connection failure / bad API key |
 
 ## Architecture
 
@@ -159,52 +102,39 @@ Two-layer hallucination guard: strict system prompt + similarity-floor short-cir
 
 | Decision | Why |
 | --- | --- |
-| Stateful endpoints + `/qa` convenience | Stateful is the right shape for RAG; `/qa` matches the spec's single-bundle example |
+| Stateful endpoints + `/qa` convenience | Stateful is right for RAG; `/qa` matches the spec's single-bundle example |
 | Output is a list of `{question, answer}` objects | Spec example was malformed JSON; a list preserves duplicate questions |
-| `retrieval_score`, not `confidence` | Cosine similarity measures *retrieval relevance*, not *answer correctness* — naming should not lie |
-| JSON docs flattened to `key.path: value` lines, then chunked | Preserves structure for retrieval; arrays past 50 elements are summarized to bound chunk count |
+| `retrieval_score`, not `confidence` | Cosine similarity measures *retrieval relevance*, not *answer correctness* |
+| JSON docs flattened to `key.path: value` lines, then chunked | Preserves structure; arrays past 50 elements are summarized to bound chunk count |
 | Chroma, persisted to disk | Zero-setup, no cloud account, survives restarts |
-| `uvicorn --workers 1` | Chroma's persistent client isn't safe for multi-process writes against the same dir |
+| `uvicorn --workers 1` | Chroma's persistent client isn't safe for multi-process writes |
 | Scanned PDFs detected and rejected with 422 | `pypdf` can't OCR; failing loudly beats mysterious empty answers |
 | LLM mocked in tests by default | Avoids burning the budget on every commit |
-| Provider via `OPENAI_BASE_URL` | One env var routes the whole pipeline through any OpenAI-compatible provider (Ollama, vLLM, etc.) |
+| Provider via `OPENAI_BASE_URL` | One env var routes the whole pipeline through any OpenAI-compatible provider (Ollama, Groq, vLLM, etc.) |
 | No auth | Coding-challenge scope — documented, not half-implemented |
+
+## Evaluation harness
+
+A QA bot you can't measure is a QA bot you can't trust. `eval/` ships a labeled set + LLM-as-judge that runs the same code path the API serves.
+
+```bash
+make eval          # runs eval/datasets/soc2.json against /tmp/soc2.pdf
+```
+
+Scores deterministic substring/refusal checks, faithfulness (claim → context grounding), relevance (on-topic), and refusal precision/recall. Configurable thresholds; CLI exits non-zero on regression. Captured scorecard at [`samples/eval_scorecard.md`](samples/eval_scorecard.md): faithfulness 90%, relevance 90%, refusal recall 100% on the SOC2 PDF.
 
 ## Cost
 
-Every LLM and embedding call is logged to `cost_log.jsonl`. `COST_HARD_CAP_USD` (default `$4`) aborts any request that would push spend over the cap. Typical end-to-end run (index a 50-page PDF + answer 5 questions): ~$0.005.
+Every LLM/embedding call is logged to `cost_log.jsonl`. `COST_HARD_CAP_USD` (default `$4`) aborts any request that would push spend over the cap. Typical end-to-end run: ~$0.005.
 
 ## Testing
 
 ```bash
-make test          # 33 unit tests, all mocked, no API calls
+make test          # 34 unit tests, all mocked, no API calls
 make lint          # ruff
 ```
 
 CI runs both on every push (`.github/workflows/ci.yml`).
-
-## Evaluation harness
-
-A QA bot you can't measure is a QA bot you can't trust. `eval/` ships a labeled question set and a scoring rig that runs the same code path the API serves.
-
-```bash
-make eval          # uses eval/datasets/soc2.json against /tmp/soc2.pdf
-```
-
-| Metric | How |
-| --- | --- |
-| **Deterministic** | Substring (`contains` / `contains_any`) or strict refusal-sentence match |
-| **Faithfulness** | LLM-as-judge: every claim in the answer traceable to retrieved context? |
-| **Relevance** | LLM-as-judge: does the answer address the question? |
-| **Refusal precision / recall** | Did the bot refuse exactly the questions it should have? |
-
-Configurable thresholds; CLI exits non-zero on regression (CI-ready). The judge inherits whatever provider you've configured — small local models (e.g. `llama3.2:1b`) make poor judges. Run with `gpt-4o-mini` (or at least `llama3.1:8b`) for meaningful numbers.
-
-A captured scorecard is committed at [`samples/eval_scorecard.md`](samples/eval_scorecard.md): faithfulness 90%, relevance 90%, refusal recall 100% on the SOC2 PDF with `llama3.1:8b`. The two FAILs (deterministic substring strictness, refusal precision tripped by one cover-page retrieval miss) are diagnostic rather than damning — read the file for the full breakdown.
-
-## Local-model fallback (Ollama)
-
-Set `OPENAI_BASE_URL=http://localhost:11434/v1` (and matching `LLM_MODEL` / `EMBEDDING_MODEL`) — the OpenAI SDK routes everything through Ollama. Useful when offline or the OpenAI key is rate-limited. See `.env.example` for the toggle. No code changes needed.
 
 ## Project layout
 
@@ -217,61 +147,71 @@ app/
   models/        # Request/response schemas
   utils/         # Cost tracking
 eval/            # Labeled questions + scoring harness
-samples/         # Spec-provided sample question set
+samples/         # Spec sample inputs + captured outputs
 tests/           # Mocked unit tests
 ```
 
+## Extending to new file types
+
+Currently supported: `.pdf` and `.json`. The pipeline is `bytes → text/pages → chunks → embeddings → Chroma` — adding a format is one loader.
+
+**Pattern:**
+
+1. Write `load_<format>(content: bytes) -> list[tuple[int, str]] | str` in `app/core/ingestion.py`. Return `(page_num, text)` tuples if the format has page semantics; otherwise a flat string.
+2. Register the extension in the `ingest()` dispatcher.
+3. Add a parametrized test in `tests/test_ingestion.py`.
+
+**Library map for the common formats:**
+
+| Format | Library | Notes |
+| --- | --- | --- |
+| `.docx` | `python-docx` | Iterate paragraphs; tables need explicit handling |
+| `.xlsx` | `openpyxl` | One sheet per "page"; rows → flat key:value lines |
+| `.csv` | stdlib `csv` | Same flatten-as-key:value treatment |
+| `.html` | `beautifulsoup4` | `.get_text(separator='\n')` after stripping `<nav>`/`<footer>` |
+| `.md` | none needed | Read as text; consider `MarkdownTextSplitter` for header-aware chunking |
+| `.pptx` | `python-pptx` | One slide per "page" |
+| `.eml` / `.mbox` | stdlib `email` | Subject + headers + body |
+| Code (`.py`, `.ts`, ...) | none | Use `RecursiveCharacterTextSplitter.from_language(...)` for syntax-aware chunks |
+
+**For scanned PDFs and images** (currently rejected with HTTP 422):
+
+- Local: `pytesseract` + `pdf2image` for PDFs, `pytesseract` + `Pillow` for images
+- Cloud: AWS Textract / Azure Document Intelligence / Google Document AI — much higher accuracy on real-world layouts
+
+**For production at scale:** [`unstructured.io`](https://unstructured.io) is the right answer — one library, 20+ formats, layout-aware extraction, table parsing, optional OCR. It would replace most of `app/core/ingestion.py` with a single `partition()` call.
+
 ## Scaling to production
 
-This is a coding-challenge submission, not a production deployment. The code patterns are right; the operational scaffolding isn't there. Below are the concrete gaps, ranked by what breaks first under real load — each with the specific fix.
+This is a coding-challenge submission, not a production deployment. Code patterns are right; operational scaffolding isn't. Concrete gaps, ranked by what breaks first:
 
-### Tier 1 — what breaks first under load
+**Tier 1 — breaks first under load**
 
-| Gap | Why it breaks | Fix |
-| --- | --- | --- |
-| `uvicorn --workers 1` | Chroma's persistent client is not safe for multi-process writes against the same on-disk dir. One worker = ~1 CPU of throughput. | Move to Chroma **server** mode (or swap to Qdrant / pgvector), then scale workers horizontally. |
-| Sync ingestion blocks the request thread | A 50 MB PDF ties up a worker for ~15s of embedding work. | Background job queue (Celery / RQ / ARQ). `POST /documents` returns a `job_id`; client polls. |
-| Retrieval quality on cover pages + repetitive structured data | Top-k cosine misses isolated facts (e.g. SOC2 cover page) and collapses on near-identical array items. | Hybrid retrieval: BM25 + dense, optionally re-ranked with a cross-encoder. |
-| File reads load fully into memory before size check | A 1 GB upload OOMs the worker before the 50 MB cap fires. | Stream the upload, check size incrementally, reject early. |
+- `uvicorn --workers 1` is a hard ceiling. Chroma's persistent client isn't multi-process safe. Fix: Chroma server mode (or Qdrant / pgvector), then scale workers.
+- Sync ingestion blocks the request thread on big PDFs. Fix: background job queue (Celery / RQ / ARQ); `POST /documents` returns a `job_id`.
+- Top-k cosine misses cover-page facts and collapses on near-identical array items. Fix: hybrid BM25 + dense, optionally re-rank with a cross-encoder.
+- Upload size check runs *after* the full file is read into memory. Fix: stream + check incrementally.
 
-### Tier 2 — needs hardening before external customers
+**Tier 2 — hardening before external customers**
 
-| Gap | Risk | Fix |
-| --- | --- | --- |
-| No auth | Anyone with the URL drains your OpenAI budget. Trivial DoS / cost-bomb. | API keys per tenant + `slowapi` rate-limit middleware. |
-| No multi-tenancy isolation | All docs share one Chroma collection separated by a `document_id` filter. One filter bug = cross-tenant leak. | Collection-per-tenant, or row-level security at the storage layer. |
-| Cost tracker is in-process | Each instance has its own counter — multi-instance = N × budget. | Move counter to Redis / Postgres with atomic increments. |
-| No data retention policy | Uploaded docs persist forever in `chroma_db/`. GDPR risk. | TTL on uploads + a `DELETE /tenants/{id}` cascade. |
-| Secrets in `.env` | Fine for dev, leaks in prod. | Vault / AWS Secrets Manager / 1Password Connect. |
-| Hard-coded pricing table | Goes stale silently when OpenAI changes prices. | Pull from a versioned pricing config or the OpenAI billing API. |
+- No auth → trivial cost-bomb. Fix: API keys per tenant + `slowapi` rate-limit middleware.
+- All docs in one Chroma collection → one filter bug = cross-tenant leak. Fix: collection-per-tenant or row-level security.
+- Cost tracker is in-process → multi-instance = N × budget. Fix: Redis/Postgres counter with atomic increments.
+- No data retention → uploaded docs persist forever. GDPR risk. Fix: TTL + `DELETE /tenants/{id}` cascade.
+- Pricing table goes stale silently. Fix: pull from versioned config or OpenAI billing API.
 
-### Tier 3 — operational scaffolding
+**Tier 3 — operational scaffolding**
 
-| Gap | Pain in prod | Fix |
-| --- | --- | --- |
-| No structured logs | Can't correlate a stack trace to a request in prod. `request_id` is *generated* but not threaded through `logger` calls. | JSON log formatter + correlation-id propagation via `contextvars`. |
-| No metrics | No visibility into p99 latency, qps, error rate. | Prometheus middleware (`starlette-prometheus`) + Grafana dashboard. |
-| No circuit breaker on the LLM provider | OpenAI's 5-min degradation = 5 min of cascading 503s. | `circuitbreaker` lib around `chat_completion` / `embed_texts`. |
-| No prompt versioning | System prompt is a string in code. Can't A/B test or roll back. | Prompt registry (Langfuse / PromptLayer / a versioned YAML). |
-| Eval harness not in CI | The harness exists but a regression in faithfulness wouldn't block a PR. | Add a CI job that runs `make eval` against a fixed doc and asserts thresholds. |
-| Single-region deploy | No DR. | Multi-region behind a load balancer; vector DB needs region replication too. |
+- No structured logs / metrics. Fix: JSON logs with `contextvars`-propagated `request_id`, Prometheus middleware.
+- No circuit breaker on the LLM provider. Fix: `circuitbreaker` lib around `chat_completion` / `embed_texts`.
+- No prompt versioning. Fix: prompt registry (Langfuse / PromptLayer / versioned YAML).
+- Eval harness exists but isn't gating CI. Fix: CI step running `make eval` against a fixed doc.
 
-### Deliberately out of scope (not a scaling concern)
+**Out of scope (deliberate, not scaling)**
 
-Excluded to keep the build focused — would be reasonable feature work, not infra:
+Streaming responses · multi-document corpus queries · conversation history · OCR fallback for scanned PDFs.
 
-- Streaming responses (~40 lines for an SSE endpoint, UX win)
-- Multi-document corpus queries (cross-doc RAG)
-- Conversation history / follow-up questions (session state)
-- OCR fallback for scanned PDFs (Tesseract / Adobe Extract)
-
-### Effort estimate
-
-Closing **Tier 1** (single-instance bottlenecks): ~1 week.
-Closing **Tier 2** (multi-tenant safety): ~2 weeks.
-Closing **Tier 3** (ops): ongoing — minimum ~1 week to get logs + metrics + a circuit breaker.
-
-So roughly **2-3 weeks for an internal beta, ~6 weeks for external customers**.
+**Effort estimate:** ~1 week for Tier 1, ~2 weeks for Tier 2, ~1 week minimum for Tier 3. Roughly **2-3 weeks for an internal beta, ~6 weeks for external customers**.
 
 ## License
 
