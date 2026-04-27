@@ -260,37 +260,35 @@ Currently supported: `.pdf`, `.json`, `.xlsx`. The pipeline is `bytes → text/p
 
 ## Scaling to production — what comes next
 
-This is a coding-challenge submission, not a production deployment. Code patterns are right; operational scaffolding isn't. Concrete gaps, ranked by what breaks first:
+Coding-challenge submission, not a production deployment. Concrete gaps, ranked by what breaks first.
 
-**Tier 1 — breaks first under load (~1 week)**
+**Tier 1 — breaks first under load**
 
-- `uvicorn --workers 1` is a hard ceiling. Chroma's persistent client isn't multi-process safe. Fix: Chroma server mode (or Qdrant / pgvector), then scale workers.
-- Sync ingestion blocks the request thread on big PDFs. Fix: background job queue (Celery / RQ / ARQ); `POST /documents` returns a `job_id`.
-- **Top-k cosine misses cover-page facts and collapses on near-identical array items.** Fix: hybrid BM25 + dense retrieval, optionally cross-encoder rerank. *(This is the fix for the multi-part-question retrieval misses you may notice during the demo.)*
-- Upload size check runs *after* the full file is read into memory. Fix: stream + check incrementally.
+- `uvicorn --workers 1` ceiling — Chroma's persistent client isn't multi-process safe. Fix: Chroma server mode (or Qdrant / pgvector), then scale workers.
+- Sync ingestion blocks the request thread on big files. Fix: background job queue; `POST /documents` returns a `job_id`.
+- Top-k cosine misses cover-page facts and collapses on near-identical array items. Fix: hybrid BM25 + dense, optional cross-encoder rerank.
+- Upload size check runs *after* the full read into memory. Fix: stream + check incrementally.
 
-**Tier 2 — hardening before external customers (~2 weeks)**
+**Tier 2 — hardening before external customers**
 
-- No auth → trivial cost-bomb. Fix: API keys per tenant + `slowapi` rate-limit middleware.
+- No auth → cost-bomb. Fix: per-tenant API keys + `slowapi` rate-limit middleware.
 - All docs in one Chroma collection → one filter bug = cross-tenant leak. Fix: collection-per-tenant or row-level security.
-- Cost tracker is in-process → multi-instance = N × budget. Fix: Redis/Postgres counter with atomic increments.
-- No data retention → uploaded docs persist forever. GDPR risk. Fix: TTL + `DELETE /tenants/{id}` cascade.
-- Pricing table goes stale silently. Fix: pull from versioned config or OpenAI billing API.
-- **Conversation history / multi-turn pronoun resolution** — chat UI exists but each question is independent right now. Fix: send last 2-3 turns to a server-side LLM rewrite step that produces a self-contained query, then run RAG.
+- In-process cost tracker → multi-instance = N × budget. Fix: Redis/Postgres atomic counter.
+- No data retention → GDPR risk. Fix: TTL + tenant-cascade delete.
+- Pricing table goes stale silently. Fix: pull from versioned config or billing API.
+- Each chat turn is independent → "tell me more" can't follow up. Fix: server-side LLM rewrite of the last 2–3 turns into a self-contained query, then run RAG.
 
-**Tier 3 — operational scaffolding (~1 week)**
+**Tier 3 — operational scaffolding**
 
-- No structured logs / metrics. Fix: JSON logs with `contextvars`-propagated `request_id`, Prometheus middleware.
-- No circuit breaker on the LLM provider. Fix: `circuitbreaker` lib around `chat_completion` / `embed_texts`.
+- No structured logs / metrics. Fix: JSON logs with `contextvars` `request_id`, Prometheus middleware.
+- No LLM circuit breaker. Fix: `circuitbreaker` around chat/embed calls.
 - No prompt versioning. Fix: prompt registry (Langfuse / PromptLayer / versioned YAML).
-- Eval harness exists but isn't gating CI. Fix: CI step running `make eval` against a fixed doc.
-- HF Spaces free tier doesn't persist storage between cold starts. Fix: enable persistent storage on the Space (paid) and set `CHROMA_PERSIST_DIR=/data/chroma_db`, OR move to Render/Fly with a real volume.
+- Eval harness doesn't gate CI. Fix: CI step running `make eval` against a fixed doc.
+- HF Spaces free tier loses Chroma between cold starts. Fix: persistent storage at `/data/chroma_db`, or move to a host with real volumes.
 
-**Out of scope (deliberate, not scaling)**
+**Out of scope (deliberate)**
 
-Streaming responses · multi-document corpus queries · OCR fallback for scanned PDFs.
-
-**Effort estimate:** roughly **2–3 weeks for an internal beta, ~6 weeks for external customers**.
+Streaming responses · multi-document corpus queries · OCR for scanned PDFs.
 
 ## License
 
