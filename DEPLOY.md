@@ -28,6 +28,7 @@
    - `EMBEDDING_PROVIDER` = `local`
    - `EMBEDDING_MODEL` = `sentence-transformers/all-MiniLM-L6-v2`
    - `SIMILARITY_FLOOR` = `0.3`  *(MiniLM scores ~0.1–0.2 lower than OpenAI embeddings; the default 0.5 will cause every query to short-circuit refuse)*
+   - `RETRIEVAL_TOP_K` = `6`  *(default is 4; 6 catches more context and helps multi-part questions without much cost increase)*
    - `DEMO_PRELOAD` = `true`
 6. The Space auto-rebuilds on every push to the `space` remote.
 
