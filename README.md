@@ -27,7 +27,23 @@ make run                   # uvicorn on :8000
 
 Service is at `http://localhost:8000` — Swagger UI at `/docs`.
 
-### Smoke test it
+### Smoke test against the spec's sample inputs
+
+The challenge doc references a sample SOC2 PDF and 5 sample questions. The questions are committed at `samples/spec_questions.json`; fetch the PDF and run:
+
+```bash
+curl -L -o /tmp/soc2.pdf https://productfruits.com/docs/soc2-type2.pdf
+
+curl -X POST http://localhost:8000/qa \
+  -F "document=@/tmp/soc2.pdf" \
+  -F "questions=@samples/spec_questions.json"
+```
+
+Add `?verbose=true` to also see the source page snippets and retrieval scores.
+
+The spec also mentions a sample JSON document hosted as a Google Sheet; export it as JSON if you want to test the JSON path, or use any nested object — the bot recursively flattens to `key.path: value` lines before chunking.
+
+### Smoke test with your own files
 
 ```bash
 curl -X POST http://localhost:8000/qa \
@@ -35,7 +51,7 @@ curl -X POST http://localhost:8000/qa \
   -F 'questions=@questions.json'
 ```
 
-Where `questions.json` is `["question 1", "question 2"]`.
+`questions.json` accepts either `["q1", "q2"]` or `{"questions": ["q1", "q2"]}`.
 
 ## API
 
@@ -128,6 +144,7 @@ app/
   models/        # Request/response schemas
   utils/         # Cost tracking
 eval/            # Labeled questions + scoring harness
+samples/         # Spec-provided sample question set
 tests/           # Mocked unit tests
 ```
 
