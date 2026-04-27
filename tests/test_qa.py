@@ -64,3 +64,135 @@ def test_excerpt_truncates_long_text_with_ellipsis():
 
 def test_excerpt_keeps_short_text_unchanged():
     assert _excerpt("short", max_chars=100) == "short"
+
+
+# --- Intent classification ---
+
+
+from app.core.qa import (  # noqa: E402
+    GREETING_RESPONSE,
+    HELP_RESPONSE,
+    LOW_SIGNAL_RESPONSE,
+    _is_greeting,
+    _is_help_request,
+    _is_listing_intent,
+    _is_low_signal,
+    _is_summary_intent,
+)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["hi", "Hi!", "hello", "hey there", "thanks", "thank you", "ok", "got it", "great", "bye"],
+)
+def test_greeting_detected(text):
+    assert _is_greeting(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["hi, what is the retention period?", "thanks for the info, but what about SLAs?", "help me find X"],
+)
+def test_greeting_does_not_match_substantive_questions(text):
+    assert not _is_greeting(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["help", "what can you do?", "what can I ask?", "how does this work?", "what is this?", "how to use this"],
+)
+def test_help_detected(text):
+    assert _is_help_request(text)
+
+
+@pytest.mark.parametrize("text", ["", " ", "?", "!!!", "a", "1", "..."])
+def test_low_signal_detected(text):
+    assert _is_low_signal(text)
+
+
+@pytest.mark.parametrize("text", ["hi", "ok", "thanks", "What is X?", "help"])
+def test_low_signal_does_not_match_real_input(text):
+    assert not _is_low_signal(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "summarize this document",
+        "give me a summary",
+        "TL;DR",
+        "tldr please",
+        "what is this document about?",
+        "give me an overview",
+        "main points please",
+    ],
+)
+def test_summary_intent_detected(text):
+    assert _is_summary_intent(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "list all the security controls",
+        "list the cloud providers",
+        "give me all the SLAs",
+        "what are all the third-party vendors?",
+        "enumerate every region",
+    ],
+)
+def test_listing_intent_detected(text):
+    assert _is_listing_intent(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["What is the retention period?", "Do you support SAML?", "Which cloud providers?"],
+)
+def test_factual_questions_do_not_trigger_special_intents(text):
+    assert not _is_summary_intent(text)
+    assert not _is_listing_intent(text)
+    assert not _is_greeting(text)
+    assert not _is_help_request(text)
+    assert not _is_low_signal(text)
+
+
+# --- Canned response paths skip retrieval and LLM entirely ---
+
+
+@pytest.mark.asyncio
+async def test_greeting_returns_canned_response_without_llm_or_retrieval():
+    with (
+        patch("app.core.qa.retrieve", AsyncMock()) as mock_retrieve,
+        patch("app.core.qa.chat_completion", AsyncMock()) as mock_llm,
+    ):
+        result = await answer_question("doc-id", "hi")
+    assert result.answer == GREETING_RESPONSE
+    assert result.sources == []
+    assert result.retrieval_score is None
+    mock_retrieve.assert_not_called()
+    mock_llm.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_help_returns_canned_response_without_llm_or_retrieval():
+    with (
+        patch("app.core.qa.retrieve", AsyncMock()) as mock_retrieve,
+        patch("app.core.qa.chat_completion", AsyncMock()) as mock_llm,
+    ):
+        result = await answer_question("doc-id", "help")
+    assert result.answer == HELP_RESPONSE
+    mock_retrieve.assert_not_called()
+    mock_llm.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_low_signal_returns_canned_response_without_llm_or_retrieval():
+    with (
+        patch("app.core.qa.retrieve", AsyncMock()) as mock_retrieve,
+        patch("app.core.qa.chat_completion", AsyncMock()) as mock_llm,
+    ):
+        result = await answer_question("doc-id", "?")
+    assert result.answer == LOW_SIGNAL_RESPONSE
+    mock_retrieve.assert_not_called()
+    mock_llm.assert_not_called()

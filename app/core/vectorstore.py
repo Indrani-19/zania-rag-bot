@@ -167,5 +167,23 @@ async def query(
     return await asyncio.to_thread(_query_sync, document_id, query_embedding, k)
 
 
+def _list_chunks_sync(document_id: str, limit: int) -> list[dict[str, Any]]:
+    result = get_collection().get(
+        where={"document_id": document_id},
+        limit=limit,
+        include=["documents", "metadatas"],
+    )
+    documents_list = result.get("documents") or []
+    metadatas_list = result.get("metadatas") or []
+    return [
+        {"text": doc, "metadata": meta or {}}
+        for doc, meta in zip(documents_list, metadatas_list)
+    ]
+
+
+async def list_chunks(document_id: str, limit: int) -> list[dict[str, Any]]:
+    return await asyncio.to_thread(_list_chunks_sync, document_id, limit)
+
+
 def _distance_to_similarity(d: float) -> float:
     return max(0.0, min(1.0, 1.0 - d))

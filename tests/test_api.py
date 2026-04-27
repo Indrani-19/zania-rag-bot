@@ -20,6 +20,17 @@ def test_health_returns_ok(client):
     assert response.json() == {"status": "ok"}
 
 
+def test_root_serves_ui(client):
+    response = client.get("/")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    body = response.text
+    assert "<title>Zania RAG Bot</title>" in body
+    # Element ids the page's JS binds to — guards against accidental rename.
+    for marker in ('id="doc-input"', 'id="composer"', 'id="send-btn"', 'id="messages"'):
+        assert marker in body
+
+
 def _fake_embedding(_texts: list[str]) -> list[list[float]]:
     # Returns a deterministic 1536-dim vector per call (matches text-embedding-3-small dims).
     return [[0.001] * 1536 for _ in _texts]

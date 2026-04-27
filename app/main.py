@@ -1,14 +1,18 @@
 import logging
+from pathlib import Path
 
 import openai
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import ValidationError
 
 from app.api import documents, qa
 from app.config import settings
 from app.core.ingestion import EmptyPdfError, IngestionError, ScannedPdfError
 from app.utils.cost import BudgetExceeded
+
+
+_STATIC_DIR = Path(__file__).parent / "static"
 
 
 logging.basicConfig(
@@ -31,6 +35,11 @@ app.include_router(qa.router, tags=["qa"])
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/", include_in_schema=False)
+async def index() -> FileResponse:
+    return FileResponse(_STATIC_DIR / "index.html", media_type="text/html")
 
 
 def _problem(status: int, type_: str, title: str, detail: str) -> JSONResponse:

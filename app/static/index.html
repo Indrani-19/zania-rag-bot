@@ -1,0 +1,1046 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Zania RAG Bot</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-soft: #f7f7f8;
+    --sidebar: #f9f9f9;
+    --border: #e5e5e7;
+    --border-strong: #d4d4d8;
+    --text: #0d0d0d;
+    --text-soft: #353740;
+    --muted: #6e6e80;
+    --muted-2: #8e8ea0;
+    --accent: #10a37f;
+    --accent-hover: #0e8e6e;
+    --user-bubble: #f4f4f5;
+    --bot-bg: #ffffff;
+    --code-bg: #f4f4f5;
+    --danger: #ef4146;
+    --danger-soft: #fef2f2;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 2px 8px rgba(0,0,0,0.06);
+    --shadow-lg: 0 8px 28px rgba(0,0,0,0.08);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+  button { font-family: inherit; }
+
+  /* App layout */
+  .app {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    height: 100vh;
+  }
+  @media (max-width: 760px) {
+    .app { grid-template-columns: 0 1fr; }
+    .sidebar { display: none; }
+  }
+
+  /* Sidebar */
+  .sidebar {
+    background: var(--sidebar);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+    gap: 8px;
+    overflow: hidden;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 6px;
+  }
+  .logo {
+    width: 28px; height: 28px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #10a37f 0%, #0e8e6e 100%);
+    color: white;
+    display: grid; place-items: center;
+    font-weight: 700;
+    font-size: 13px;
+  }
+  .brand-name { font-weight: 600; font-size: 14px; }
+  .brand-sub { font-size: 11px; color: var(--muted); margin-top: -2px; }
+
+  .new-chat {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-strong);
+    background: var(--bg);
+    color: var(--text);
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background 0.15s;
+  }
+  .new-chat:hover { background: var(--bg-soft); }
+  .new-chat svg { width: 16px; height: 16px; }
+
+  .sidebar-section {
+    margin-top: 4px;
+    padding: 4px 10px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .doc-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .doc-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    color: var(--text-soft);
+    font-size: 13.5px;
+    transition: background 0.12s;
+    border: 1px solid transparent;
+  }
+  .doc-item:hover { background: var(--bg); }
+  .doc-item.active { background: var(--bg); border-color: var(--border); }
+  .doc-item .name {
+    flex: 1;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .doc-item .icon {
+    width: 16px; height: 16px;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+  .doc-item .del {
+    visibility: hidden;
+    background: none;
+    border: 0;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 16px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .doc-item:hover .del,
+  .doc-item.active .del { visibility: visible; }
+  .doc-item .del:hover { background: var(--bg-soft); color: var(--danger); }
+
+  .sidebar-empty {
+    padding: 12px;
+    color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+
+  .sidebar-footer {
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+    display: flex;
+    gap: 4px;
+    flex-direction: column;
+  }
+  .sidebar-footer a {
+    color: var(--text-soft);
+    text-decoration: none;
+    font-size: 13px;
+    padding: 6px 10px;
+    border-radius: 6px;
+  }
+  .sidebar-footer a:hover { background: var(--bg); }
+
+  /* Main */
+  .main {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+    position: relative;
+  }
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+    min-height: 52px;
+  }
+  .topbar .title {
+    font-weight: 600;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .topbar .title .doc-badge {
+    font-weight: 400;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .topbar .actions { display: flex; gap: 8px; }
+  .icon-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 6px 10px;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .icon-btn:hover { background: var(--bg-soft); color: var(--text); }
+  .icon-btn svg { width: 14px; height: 14px; }
+
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 28px 20px 140px;
+    scroll-behavior: smooth;
+  }
+  .msg-wrap {
+    max-width: 760px;
+    margin: 0 auto 24px;
+    display: flex;
+    gap: 14px;
+  }
+  .avatar {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: grid; place-items: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: white;
+  }
+  .avatar.user { background: #6e6e80; }
+  .avatar.bot { background: linear-gradient(135deg, #10a37f 0%, #0e8e6e 100%); }
+  .avatar svg { width: 16px; height: 16px; }
+
+  .msg-body {
+    flex: 1;
+    min-width: 0;
+    padding-top: 4px;
+  }
+  .msg-name {
+    font-weight: 600;
+    font-size: 13.5px;
+    margin-bottom: 4px;
+    color: var(--text);
+  }
+  .msg-text {
+    color: var(--text-soft);
+    line-height: 1.7;
+    font-size: 15px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  .msg-text.system {
+    color: var(--muted);
+    font-size: 13.5px;
+    font-style: italic;
+  }
+
+  .typing {
+    display: inline-flex;
+    gap: 4px;
+    padding: 4px 0;
+  }
+  .typing span {
+    width: 7px; height: 7px;
+    background: var(--muted-2);
+    border-radius: 50%;
+    animation: bounce 1.2s infinite ease-in-out;
+  }
+  .typing span:nth-child(2) { animation-delay: 0.2s; }
+  .typing span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes bounce {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+    30% { transform: translateY(-4px); opacity: 1; }
+  }
+
+  .sources-toggle {
+    background: none;
+    border: 0;
+    color: var(--accent);
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 0;
+    cursor: pointer;
+    margin-top: 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .sources-toggle:hover { color: var(--accent-hover); }
+  .sources-toggle .caret {
+    display: inline-block;
+    transition: transform 0.15s;
+    font-size: 9px;
+  }
+  .sources-toggle.open .caret { transform: rotate(90deg); }
+  .sources {
+    margin-top: 10px;
+    display: none;
+    border-left: 2px solid var(--border-strong);
+    padding-left: 14px;
+  }
+  .sources.open { display: block; }
+  .source {
+    background: var(--code-bg);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+  }
+  .source .badge {
+    background: white;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    padding: 1px 7px;
+    font-weight: 600;
+    color: var(--text);
+    font-size: 11px;
+    display: inline-block;
+    margin-bottom: 6px;
+  }
+  .source .snippet {
+    color: var(--text-soft);
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    font-size: 12.5px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  /* Empty state */
+  .empty-state {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 60px 20px 0;
+    text-align: center;
+  }
+  .empty-state .big-logo {
+    width: 56px; height: 56px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #10a37f 0%, #0e8e6e 100%);
+    color: white;
+    display: grid; place-items: center;
+    font-weight: 700;
+    font-size: 22px;
+    margin: 0 auto 18px;
+    box-shadow: var(--shadow-md);
+  }
+  .empty-state h1 {
+    font-size: 26px;
+    font-weight: 600;
+    margin: 0 0 8px;
+    letter-spacing: -0.01em;
+  }
+  .empty-state p {
+    color: var(--muted);
+    font-size: 15px;
+    margin: 0 0 32px;
+  }
+  .suggestions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    max-width: 620px;
+    margin: 0 auto;
+  }
+  @media (max-width: 600px) { .suggestions { grid-template-columns: 1fr; } }
+  .suggestion {
+    text-align: left;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .suggestion:hover { background: var(--bg-soft); border-color: var(--border-strong); }
+  .suggestion .s-title { font-weight: 500; font-size: 13.5px; color: var(--text); }
+  .suggestion .s-sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+
+  /* Composer */
+  .composer-wrap {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    padding: 0 20px 20px;
+    background: linear-gradient(to bottom, transparent 0%, var(--bg) 30%);
+    pointer-events: none;
+  }
+  .composer {
+    max-width: 760px;
+    margin: 0 auto;
+    pointer-events: auto;
+  }
+  .composer-box {
+    border: 1px solid var(--border-strong);
+    border-radius: 22px;
+    background: var(--bg);
+    box-shadow: var(--shadow-md);
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    padding: 6px 6px 6px 14px;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .composer-box:focus-within {
+    border-color: var(--text-soft);
+    box-shadow: 0 0 0 3px rgba(16,163,127,0.12), var(--shadow-md);
+  }
+  .composer textarea {
+    flex: 1;
+    border: 0;
+    outline: 0;
+    resize: none;
+    background: transparent;
+    font-family: inherit;
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--text);
+    padding: 10px 4px;
+    max-height: 200px;
+    min-height: 24px;
+  }
+  .composer textarea::placeholder { color: var(--muted-2); }
+  .attach-btn, .send-btn {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    border: 0;
+    cursor: pointer;
+    display: grid; place-items: center;
+    flex-shrink: 0;
+  }
+  .attach-btn {
+    background: transparent;
+    color: var(--muted);
+  }
+  .attach-btn:hover { background: var(--bg-soft); color: var(--text); }
+  .attach-btn svg { width: 18px; height: 18px; }
+  .send-btn {
+    background: var(--text);
+    color: white;
+  }
+  .send-btn:hover:not(:disabled) { background: #000; }
+  .send-btn:disabled { background: var(--border-strong); cursor: not-allowed; }
+  .send-btn svg { width: 16px; height: 16px; }
+
+  .composer-hint {
+    text-align: center;
+    color: var(--muted-2);
+    font-size: 11.5px;
+    margin-top: 8px;
+  }
+  .composer-hint .doc-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 3px 10px;
+    color: var(--text-soft);
+    font-size: 11.5px;
+    margin: 0 6px;
+  }
+  .composer-hint .doc-chip svg { width: 11px; height: 11px; }
+  .composer-hint .doc-chip button {
+    background: none; border: 0; padding: 0; margin-left: 4px;
+    color: var(--muted); cursor: pointer; font-size: 13px; line-height: 1;
+  }
+  .composer-hint .doc-chip button:hover { color: var(--danger); }
+
+  /* Error toast */
+  .toast {
+    position: fixed;
+    top: 16px; right: 16px;
+    background: var(--bg);
+    border: 1px solid #fecaca;
+    color: var(--danger);
+    border-left: 3px solid var(--danger);
+    border-radius: 8px;
+    padding: 10px 14px;
+    box-shadow: var(--shadow-lg);
+    max-width: 420px;
+    font-size: 13.5px;
+    z-index: 50;
+  }
+  .toast .t-title { font-weight: 600; margin-bottom: 2px; color: var(--danger); }
+  .toast .t-detail { color: var(--text-soft); }
+  .toast .t-close {
+    position: absolute;
+    top: 6px; right: 6px;
+    background: none; border: 0; cursor: pointer;
+    color: var(--muted); padding: 4px 6px; line-height: 1;
+  }
+
+  input[type="file"] { display: none; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">Z</div>
+      <div>
+        <div class="brand-name">Zania RAG Bot</div>
+        <div class="brand-sub">Document Q&amp;A</div>
+      </div>
+    </div>
+
+    <button class="new-chat" id="new-chat">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      New chat
+    </button>
+
+    <div class="sidebar-section">Documents</div>
+    <div class="doc-list" id="doc-list">
+      <div class="sidebar-empty" id="sidebar-empty">
+        Attach a PDF, JSON, or XLSX to start chatting.
+      </div>
+    </div>
+
+    <div class="sidebar-footer">
+      <a href="/docs" target="_blank" rel="noopener">API docs</a>
+      <a href="/health" target="_blank" rel="noopener">Health</a>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="title">
+        <span>Zania RAG Bot</span>
+        <span class="doc-badge" id="doc-badge"></span>
+      </div>
+      <div class="actions"></div>
+    </div>
+
+    <div class="messages" id="messages">
+      <div class="empty-state" id="empty-state">
+        <div class="big-logo">Z</div>
+        <h1>How can I help you with your document?</h1>
+        <p>Attach a PDF, JSON, or XLSX file and ask anything — answers are cited back to the source.</p>
+        <div class="suggestions" id="suggestions">
+          <button class="suggestion" data-prompt="Summarize this document in 5 bullet points.">
+            <div class="s-title">Summarize this document</div>
+            <div class="s-sub">A quick 5-bullet overview</div>
+          </button>
+          <button class="suggestion" data-prompt="Which cloud providers do you rely on?">
+            <div class="s-title">Which cloud providers do you rely on?</div>
+            <div class="s-sub">Sample SOC2 question</div>
+          </button>
+          <button class="suggestion" data-prompt="Is personal information transmitted, processed, stored, or disclosed to or retained by third parties? If yes, describe.">
+            <div class="s-title">Third-party data handling</div>
+            <div class="s-sub">Privacy &amp; vendor disclosure</div>
+          </button>
+          <button class="suggestion" data-prompt="Do you have formally defined criteria for notifying a client during an incident? What are your SLAs?">
+            <div class="s-title">Incident notification SLAs</div>
+            <div class="s-sub">Security incident response</div>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="composer-wrap">
+      <div class="composer">
+        <div class="composer-box">
+          <button class="attach-btn" id="attach-btn" title="Attach document">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          </button>
+          <input type="file" id="doc-input" accept=".pdf,.json,.xlsx" />
+          <textarea id="composer" rows="1" placeholder="Message Zania RAG Bot..."></textarea>
+          <button class="send-btn" id="send-btn" disabled title="Send (Enter)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+          </button>
+        </div>
+        <div class="composer-hint" id="composer-hint">
+          <span id="hint-text">Attach a document with the paperclip, then ask a question</span>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const messagesEl = $("messages");
+  const emptyState = $("empty-state");
+  const composerEl = $("composer");
+  const sendBtn = $("send-btn");
+  const attachBtn = $("attach-btn");
+  const docInput = $("doc-input");
+  const hintText = $("hint-text");
+  const docBadge = $("doc-badge");
+  const docList = $("doc-list");
+  const newChatBtn = $("new-chat");
+
+  const STORAGE_KEY = "zania.chats.v1";
+
+  // chats: { [id]: { id, docId, fileName, chunkCount, messages: [...], createdAt } }
+  // each message: { role: 'user'|'bot'|'system', text, sources?, score?, system? }
+  const state = {
+    chats: {},
+    activeId: null,
+    busy: false,
+  };
+
+  /* ---- persistence ---- */
+  const saveState = () => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        chats: state.chats,
+        activeId: state.activeId,
+      }));
+    } catch (_) { /* localStorage may be disabled / full */ }
+  };
+
+  const loadState = () => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      if (data && data.chats && typeof data.chats === "object") {
+        state.chats = data.chats;
+        state.activeId = data.activeId && state.chats[data.activeId] ? data.activeId : null;
+        if (!state.activeId) {
+          const first = Object.keys(state.chats)[0];
+          state.activeId = first || null;
+        }
+      }
+    } catch (_) { /* corrupt storage — fall back to fresh */ }
+  };
+
+  /* ---- chat ops ---- */
+  const newChatId = () => {
+    if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+    return "c-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+  };
+
+  const createChat = () => {
+    const id = newChatId();
+    state.chats[id] = {
+      id, docId: null, fileName: null, chunkCount: 0,
+      messages: [], createdAt: Date.now(),
+    };
+    state.activeId = id;
+    saveState();
+    return state.chats[id];
+  };
+
+  const activeChat = () => state.activeId ? state.chats[state.activeId] : null;
+
+  const ensureActiveChat = () => activeChat() || createChat();
+
+  const switchChat = (id) => {
+    if (!state.chats[id] || id === state.activeId) {
+      state.activeId = id;
+      renderAll();
+      return;
+    }
+    state.activeId = id;
+    saveState();
+    renderAll();
+    composerEl.focus();
+  };
+
+  const deleteChat = (id) => {
+    const chat = state.chats[id];
+    if (!chat) return;
+    if (chat.docId) {
+      fetch(`/documents/${chat.docId}`, { method: "DELETE" }).catch(() => {});
+    }
+    delete state.chats[id];
+    if (state.activeId === id) {
+      const remaining = Object.keys(state.chats);
+      state.activeId = remaining[0] || null;
+    }
+    if (!state.activeId) createChat();
+    saveState();
+    renderAll();
+  };
+
+  /* ---- helpers ---- */
+  const escapeHtml = (s) =>
+    String(s).replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    })[c]);
+
+  const fmtBytes = (n) => {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
+  const showToast = (title, detail) => {
+    const existing = document.querySelector(".toast");
+    if (existing) existing.remove();
+    const el = document.createElement("div");
+    el.className = "toast";
+    el.innerHTML = `
+      <button class="t-close" aria-label="Close">×</button>
+      <div class="t-title">${escapeHtml(title)}</div>
+      <div class="t-detail">${escapeHtml(detail || "")}</div>`;
+    document.body.appendChild(el);
+    el.querySelector(".t-close").addEventListener("click", () => el.remove());
+    setTimeout(() => el.remove(), 8000);
+  };
+
+  const scrollToBottom = () => {
+    requestAnimationFrame(() => {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    });
+  };
+
+  /* ---- rendering ---- */
+  const renderSidebar = () => {
+    docList.innerHTML = "";
+    const ids = Object.keys(state.chats).sort(
+      (a, b) => state.chats[b].createdAt - state.chats[a].createdAt
+    );
+    if (ids.length === 0) {
+      const placeholder = document.createElement("div");
+      placeholder.className = "sidebar-empty";
+      placeholder.textContent = "Attach a PDF, JSON, or XLSX to start chatting.";
+      docList.appendChild(placeholder);
+      return;
+    }
+    for (const id of ids) {
+      const chat = state.chats[id];
+      const item = document.createElement("div");
+      item.className = "doc-item" + (id === state.activeId ? " active" : "");
+      item.dataset.id = id;
+      const title = chat.fileName || "New chat";
+      item.innerHTML = `
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <span class="name">${escapeHtml(title)}</span>
+        <button class="del" title="Delete chat" aria-label="Delete chat">×</button>`;
+      item.addEventListener("click", (e) => {
+        if (e.target.closest(".del")) {
+          e.stopPropagation();
+          deleteChat(id);
+        } else {
+          switchChat(id);
+        }
+      });
+      docList.appendChild(item);
+    }
+  };
+
+  const renderTopbar = () => {
+    const chat = activeChat();
+    if (chat && chat.fileName) {
+      docBadge.innerHTML = ` · <span style="color: var(--text-soft);">${escapeHtml(chat.fileName)}</span>`;
+    } else {
+      docBadge.textContent = "";
+    }
+  };
+
+  const renderHint = () => {
+    const chat = activeChat();
+    if (chat && chat.docId) {
+      hintText.innerHTML = `<span class="doc-chip">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        ${escapeHtml(chat.fileName)}
+      </span> attached · Press Enter to send · Shift+Enter for newline`;
+      composerEl.placeholder = "Ask anything about this document...";
+    } else {
+      hintText.textContent = "Attach a document with the paperclip, then ask a question";
+      composerEl.placeholder = "Message Zania RAG Bot...";
+    }
+  };
+
+  const buildMessageNode = ({ role, text, sources, score, system }) => {
+    const wrap = document.createElement("div");
+    wrap.className = "msg-wrap";
+    const avatar = document.createElement("div");
+    avatar.className = `avatar ${role === "user" ? "user" : "bot"}`;
+    avatar.textContent = role === "user" ? "You" : "Z";
+    const body = document.createElement("div");
+    body.className = "msg-body";
+    const name = document.createElement("div");
+    name.className = "msg-name";
+    name.textContent = role === "user" ? "You" : "Zania";
+    const txt = document.createElement("div");
+    txt.className = "msg-text" + (system ? " system" : "");
+    txt.textContent = text || "";
+    body.appendChild(name);
+    body.appendChild(txt);
+    if (sources && sources.length) {
+      const toggle = document.createElement("button");
+      toggle.className = "sources-toggle";
+      toggle.innerHTML = `<span class="caret">▶</span><span>Sources (${sources.length})${score != null ? ` · score ${Number(score).toFixed(3)}` : ""}</span>`;
+      const panel = document.createElement("div");
+      panel.className = "sources";
+      panel.innerHTML = sources.map((s) => `
+        <div class="source">
+          <div class="badge">${s.page != null ? "Page " + escapeHtml(String(s.page)) : "Source"}</div>
+          <div class="snippet">${escapeHtml(s.snippet || "")}</div>
+        </div>
+      `).join("");
+      toggle.addEventListener("click", () => {
+        const open = panel.classList.toggle("open");
+        toggle.classList.toggle("open", open);
+      });
+      body.appendChild(toggle);
+      body.appendChild(panel);
+    }
+    wrap.appendChild(avatar);
+    wrap.appendChild(body);
+    return wrap;
+  };
+
+  const renderMessages = () => {
+    messagesEl.innerHTML = "";
+    const chat = activeChat();
+    if (!chat || chat.messages.length === 0) {
+      messagesEl.appendChild(emptyState);
+      return;
+    }
+    for (const msg of chat.messages) {
+      messagesEl.appendChild(buildMessageNode(msg));
+    }
+    scrollToBottom();
+  };
+
+  const renderAll = () => {
+    renderSidebar();
+    renderTopbar();
+    renderHint();
+    renderMessages();
+    updateSendEnabled();
+  };
+
+  const appendMessageToActive = (msg) => {
+    const chat = ensureActiveChat();
+    chat.messages.push(msg);
+    if (emptyState.parentNode) emptyState.remove();
+    messagesEl.appendChild(buildMessageNode(msg));
+    scrollToBottom();
+    saveState();
+  };
+
+  const addTypingMessage = () => {
+    const wrap = document.createElement("div");
+    wrap.className = "msg-wrap";
+    wrap.dataset.typing = "1";
+    wrap.innerHTML = `
+      <div class="avatar bot">Z</div>
+      <div class="msg-body">
+        <div class="msg-name">Zania</div>
+        <div class="typing"><span></span><span></span><span></span></div>
+      </div>`;
+    if (emptyState.parentNode) emptyState.remove();
+    messagesEl.appendChild(wrap);
+    scrollToBottom();
+    return wrap;
+  };
+
+  /* ---- composer ---- */
+  const autoResize = () => {
+    composerEl.style.height = "auto";
+    composerEl.style.height = Math.min(composerEl.scrollHeight, 200) + "px";
+  };
+  const updateSendEnabled = () => {
+    const chat = activeChat();
+    sendBtn.disabled = state.busy || !chat || !chat.docId || composerEl.value.trim().length === 0;
+  };
+  composerEl.addEventListener("input", () => { autoResize(); updateSendEnabled(); });
+  composerEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      submit();
+    }
+  });
+
+  /* ---- network ---- */
+  const uploadDocument = async (file) => {
+    state.busy = true;
+    updateSendEnabled();
+    const chat = ensureActiveChat();
+    appendMessageToActive({ role: "system", system: true, text: `Uploading ${file.name}...` });
+    try {
+      const fd = new FormData();
+      fd.append("document", file);
+      const res = await fetch("/documents", { method: "POST", body: fd });
+      const text = await res.text();
+      let body;
+      try { body = JSON.parse(text); } catch { body = null; }
+      if (!res.ok) {
+        const title = (body && body.title) || `Upload failed (HTTP ${res.status})`;
+        const detail = (body && body.detail) || text || "Could not upload document.";
+        // Drop the "Uploading..." system message we just added.
+        chat.messages.pop();
+        saveState();
+        renderAll();
+        showToast(title, detail);
+        return;
+      }
+      chat.docId = body.document_id;
+      chat.fileName = file.name;
+      chat.chunkCount = body.chunk_count;
+      chat.messages[chat.messages.length - 1].text =
+        `Attached "${file.name}" (${fmtBytes(file.size)} · ${body.chunk_count} chunks indexed). Ask anything below.`;
+      saveState();
+      renderAll();
+      composerEl.focus();
+    } catch (err) {
+      chat.messages.pop();
+      saveState();
+      renderAll();
+      showToast("Upload failed", err.message || String(err));
+    } finally {
+      state.busy = false;
+      updateSendEnabled();
+    }
+  };
+
+  const askQuestion = async (question) => {
+    const chat = activeChat();
+    if (!chat || !chat.docId) {
+      showToast("No document attached", "Click the paperclip to upload a PDF, JSON, or XLSX first.");
+      return;
+    }
+    state.busy = true;
+    updateSendEnabled();
+    appendMessageToActive({ role: "user", text: question });
+    const typing = addTypingMessage();
+    try {
+      const res = await fetch(`/documents/${chat.docId}/questions?verbose=true`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ questions: [question] }),
+      });
+      const text = await res.text();
+      let body;
+      try { body = JSON.parse(text); } catch { body = null; }
+      typing.remove();
+      if (!res.ok) {
+        const title = (body && body.title) || `Request failed (HTTP ${res.status})`;
+        const detail = (body && body.detail) || text || "Could not get an answer.";
+        appendMessageToActive({ role: "bot", text: `⚠ ${title}\n\n${detail}` });
+        showToast(title, detail);
+        return;
+      }
+      const item = Array.isArray(body) && body[0];
+      if (!item) {
+        appendMessageToActive({ role: "bot", text: "(No answer returned.)" });
+        return;
+      }
+      appendMessageToActive({
+        role: "bot",
+        text: item.answer || "(empty answer)",
+        sources: item.sources || [],
+        score: item.retrieval_score,
+      });
+    } catch (err) {
+      typing.remove();
+      const detail = err && err.message ? err.message : String(err);
+      appendMessageToActive({ role: "bot", text: `⚠ Request failed\n\n${detail}` });
+      showToast("Request failed", detail);
+    } finally {
+      state.busy = false;
+      updateSendEnabled();
+    }
+  };
+
+  const submit = () => {
+    const q = composerEl.value.trim();
+    const chat = activeChat();
+    if (!q || !chat || !chat.docId || state.busy) return;
+    composerEl.value = "";
+    autoResize();
+    askQuestion(q);
+  };
+
+  /* ---- handlers ---- */
+  attachBtn.addEventListener("click", () => docInput.click());
+  docInput.addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (file) uploadDocument(file);
+    e.target.value = "";
+  });
+  sendBtn.addEventListener("click", submit);
+
+  newChatBtn.addEventListener("click", () => {
+    const cur = activeChat();
+    // If current chat is empty + no doc, just stay there — don't create a duplicate empty slot.
+    if (cur && !cur.docId && cur.messages.length === 0) {
+      composerEl.focus();
+      return;
+    }
+    createChat();
+    composerEl.value = "";
+    autoResize();
+    renderAll();
+    composerEl.focus();
+  });
+
+  document.querySelectorAll(".suggestion").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const prompt = btn.getAttribute("data-prompt");
+      composerEl.value = prompt;
+      autoResize();
+      updateSendEnabled();
+      composerEl.focus();
+      const chat = activeChat();
+      if (chat && chat.docId) submit();
+    });
+  });
+
+  /* ---- drag & drop on whole window ---- */
+  let dragCount = 0;
+  window.addEventListener("dragenter", (e) => {
+    e.preventDefault();
+    dragCount++;
+  });
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("dragleave", () => { dragCount = Math.max(0, dragCount - 1); });
+  window.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dragCount = 0;
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) uploadDocument(file);
+  });
+
+  /* ---- init ---- */
+  loadState();
+  ensureActiveChat();
+  renderAll();
+  composerEl.focus();
+})();
+</script>
+</body>
+</html>
