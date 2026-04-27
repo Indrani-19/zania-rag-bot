@@ -43,6 +43,8 @@ Add `?verbose=true` to also see the source page snippets and retrieval scores.
 
 The spec also mentions a sample JSON document hosted as a Google Sheet; export it as JSON if you want to test the JSON path, or use any nested object — the bot recursively flattens to `key.path: value` lines before chunking.
 
+A captured run of the above curl is committed at [`samples/example_output_ollama.md`](samples/example_output_ollama.md) so you can preview the output without running the service.
+
 ### Smoke test with your own files
 
 ```bash
