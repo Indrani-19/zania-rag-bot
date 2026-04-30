@@ -9,16 +9,16 @@ from pydantic import ValidationError
 from app.api import documents, qa
 from app.config import settings
 from app.core.ingestion import EmptyPdfError, IngestionError, ScannedPdfError
+from app.observability.logging import configure_logging
+from app.observability.metrics import metrics_endpoint
+from app.observability.middleware import ObservabilityMiddleware
 from app.utils.cost import BudgetExceeded
 
 
 _STATIC_DIR = Path(__file__).parent / "static"
 
 
-logging.basicConfig(
-    level=settings.log_level,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
+configure_logging(settings.log_level)
 
 
 app = FastAPI(
@@ -27,9 +27,11 @@ app = FastAPI(
     version="0.1.0",
 )
 
+app.add_middleware(ObservabilityMiddleware)
 
 app.include_router(documents.router, tags=["documents"])
 app.include_router(qa.router, tags=["qa"])
+app.add_route("/metrics", metrics_endpoint, include_in_schema=False)
 
 
 @app.on_event("startup")

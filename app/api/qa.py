@@ -1,8 +1,7 @@
 import json
 import logging
-import uuid
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 
 from app.api._helpers import check_size, serialize_answers
 from app.core import qa as qa_module
@@ -17,11 +16,12 @@ logger = logging.getLogger(__name__)
 
 @router.post("/qa")
 async def upload_and_ask(
+    request: Request,
     document: UploadFile = File(...),
     questions: UploadFile = File(...),
     verbose: bool = Query(False),
 ):
-    request_id = str(uuid.uuid4())
+    request_id = request.state.request_id
 
     doc_content = await document.read()
     check_size(doc_content)
@@ -37,6 +37,7 @@ async def upload_and_ask(
 
     payload = QuestionsPayload.model_validate(questions_data)
 
+    import uuid
     document_id = str(uuid.uuid4())
     await vectorstore.index_document(document_id, chunks, request_id=request_id)
     answers = await qa_module.answer_questions(
