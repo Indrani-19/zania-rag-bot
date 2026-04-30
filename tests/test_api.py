@@ -260,6 +260,18 @@ def test_documents_upload_rejects_oversized_stream(client, monkeypatch):
     assert response.status_code == 413, response.text
 
 
+def test_questions_for_unknown_document_returns_404(client):
+    response = client.post(
+        "/documents/does-not-exist-abc123/questions",
+        json={"questions": ["What is the retention period?"]},
+    )
+    assert response.status_code == 404, response.text
+    body = response.json()
+    assert body["type"] == "document_not_found"
+    assert body["title"] == "Document not found"
+    assert "re-upload" in body["detail"]
+
+
 def test_qa_returns_503_when_openai_unreachable(client):
     err = openai.APIConnectionError(message="connect failed", request=_fake_request())
     with patch(

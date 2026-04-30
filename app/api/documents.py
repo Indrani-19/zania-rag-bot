@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import APIRouter, File, Query, UploadFile
+from fastapi.responses import JSONResponse
 
 from app.api._helpers import read_capped, serialize_answers
 from app.config import settings
@@ -48,6 +49,19 @@ async def ask_questions(
     payload: QuestionsPayload,
     verbose: bool = Query(False),
 ):
+    if not await vectorstore.list_chunks(document_id, limit=1):
+        return JSONResponse(
+            status_code=404,
+            content={
+                "type": "document_not_found",
+                "title": "Document not found",
+                "status": 404,
+                "detail": (
+                    "This document is no longer indexed (server may have "
+                    "restarted). Please re-upload the document and try again."
+                ),
+            },
+        )
     answers = await qa_module.answer_questions(
         document_id, payload.questions, request_id=document_id
     )
