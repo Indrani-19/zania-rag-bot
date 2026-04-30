@@ -85,8 +85,8 @@ def load_json(content: bytes) -> str:
     return "\n".join(flatten_json(data))
 
 
-def load_xlsx(content: bytes) -> list[tuple[int, str]]:
-    """Load .xlsx into (sheet_index, text) blocks. One sheet per "page".
+def load_xlsx(content: bytes) -> list[tuple[int, int, str]]:
+    """Load .xlsx into (sheet_index, row_index, text) blocks — one entry per row.
 
     Each non-empty data row is rendered as a labeled key/value block using the
     first row as headers, e.g.:
@@ -95,8 +95,10 @@ def load_xlsx(content: bytes) -> list[tuple[int, str]]:
         question: Where are your data centres located?
         answer: Our data centers are located in the US Central region...
 
-    Keeping rows together as units (rather than column-flattening) preserves
-    Q&A semantics for retrieval — a question and its answer stay in the same chunk.
+    Returning one block per row (rather than concatenating per sheet) lets the
+    chunker emit one chunk per Q&A pair — character-based splitting across rows
+    averages many unrelated rows into a single chunk and destroys retrieval
+    precision on Q&A-style spreadsheets.
     """
     try:
         wb = load_workbook(BytesIO(content), data_only=True, read_only=True)
@@ -106,7 +108,7 @@ def load_xlsx(content: bytes) -> list[tuple[int, str]]:
     if not wb.sheetnames:
         raise IngestionError("xlsx has no sheets")
 
-    sheets: list[tuple[int, str]] = []
+    rows: list[tuple[int, int, str]] = []
     for sheet_idx, sheet_name in enumerate(wb.sheetnames, start=1):
         ws = wb[sheet_name]
         rows_iter = ws.iter_rows(values_only=True)
@@ -120,7 +122,6 @@ def load_xlsx(content: bytes) -> list[tuple[int, str]]:
             label = "" if cell is None else str(cell).strip()
             headers.append(label or f"col{i}")
 
-        blocks: list[str] = []
         for row_idx, row in enumerate(rows_iter, start=2):
             kv_lines: list[str] = []
             for header, value in zip(headers, row):
@@ -130,15 +131,25 @@ def load_xlsx(content: bytes) -> list[tuple[int, str]]:
                     continue
                 kv_lines.append(f"{header}: {value}")
             if kv_lines:
-                blocks.append(f"[{sheet_name}, row {row_idx}]\n" + "\n".join(kv_lines))
+                block = f"[{sheet_name}, row {row_idx}]\n" + "\n".join(kv_lines)
+                rows.append((sheet_idx, row_idx, block))
 
-        if blocks:
-            sheets.append((sheet_idx, "\n\n".join(blocks)))
-
-    if not sheets:
+    if not rows:
         raise IngestionError("xlsx has no data rows")
 
-    return sheets
+    return rows
+
+
+def chunk_xlsx_rows(
+    rows: list[tuple[int, int, str]], source: str
+) -> list[Document]:
+    return [
+        Document(
+            page_content=block,
+            metadata={"source": source, "page": sheet_idx, "row": row_idx},
+        )
+        for sheet_idx, row_idx, block in rows
+    ]
 
 
 def _splitter() -> RecursiveCharacterTextSplitter:
@@ -184,11 +195,8 @@ def ingest(content: bytes, filename: str) -> list[Document]:
         flattened = load_json(content)
         documents = chunk_json_text(flattened, source=filename)
     elif suffix == ".xlsx":
-        # Sheet index is reused as the "page" metadata so verbose responses
-        # cite "Page 1" = "Sheet 1" for xlsx. chunk_pdf_pages is generic over
-        # (int, text) pairs — the name is just historical.
-        sheets = load_xlsx(content)
-        documents = chunk_pdf_pages(sheets, source=filename)
+        rows = load_xlsx(content)
+        documents = chunk_xlsx_rows(rows, source=filename)
     else:
         raise IngestionError(
             f"Unsupported file type: {suffix}. Supported: .pdf, .json, .xlsx"

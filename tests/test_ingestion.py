@@ -95,16 +95,16 @@ def test_load_xlsx_emits_one_block_per_data_row_with_headers():
         ["What is the retention?", "90 days."],
         ["What is the SLA?", "99.9% uptime."],
     ])
-    sheets = load_xlsx(content)
-    assert len(sheets) == 1
-    sheet_idx, text = sheets[0]
-    assert sheet_idx == 1
-    assert "question: What is the retention?" in text
-    assert "answer: 90 days." in text
-    assert "answer: 99.9% uptime." in text
-    # Row markers preserved
-    assert "[Sheet1, row 2]" in text
-    assert "[Sheet1, row 3]" in text
+    rows = load_xlsx(content)
+    assert len(rows) == 2
+    (s1, r1, t1), (s2, r2, t2) = rows
+    assert s1 == 1 and s2 == 1
+    assert r1 == 2 and r2 == 3
+    assert "question: What is the retention?" in t1
+    assert "answer: 90 days." in t1
+    assert "answer: 99.9% uptime." in t2
+    assert t1.startswith("[Sheet1, row 2]")
+    assert t2.startswith("[Sheet1, row 3]")
 
 
 def test_load_xlsx_skips_empty_rows():
@@ -115,10 +115,9 @@ def test_load_xlsx_skips_empty_rows():
         ["", ""],
         ["Q2", "A2"],
     ])
-    _, text = load_xlsx(content)[0]
-    assert "Q1" in text and "Q2" in text
-    # Empty rows produce no blocks → only two row markers
-    assert text.count("[Sheet1, row") == 2
+    rows = load_xlsx(content)
+    assert len(rows) == 2
+    assert "Q1" in rows[0][2] and "Q2" in rows[1][2]
 
 
 def test_load_xlsx_assigns_generic_header_when_missing():
@@ -126,9 +125,9 @@ def test_load_xlsx_assigns_generic_header_when_missing():
         [None, "answer"],
         ["X", "Y"],
     ])
-    _, text = load_xlsx(content)[0]
-    assert "col1: X" in text
-    assert "answer: Y" in text
+    rows = load_xlsx(content)
+    assert "col1: X" in rows[0][2]
+    assert "answer: Y" in rows[0][2]
 
 
 def test_load_xlsx_with_no_data_rows_raises():
@@ -153,3 +152,14 @@ def test_ingest_xlsx_attaches_sheet_index_as_page():
     assert any(d.metadata.get("page") == 1 for d in docs)
     combined = "\n".join(d.page_content for d in docs)
     assert "US Central" in combined
+
+
+def test_ingest_xlsx_emits_one_chunk_per_row():
+    rows_data = [["question", "answer"]] + [
+        [f"Q{i}?", f"A{i}."] for i in range(1, 51)
+    ]
+    content = _build_xlsx(rows_data)
+    docs = ingest(content, "kb.xlsx")
+    assert len(docs) == 50
+    assert all(d.metadata.get("row") for d in docs)
+    assert {d.metadata["row"] for d in docs} == set(range(2, 52))
