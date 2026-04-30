@@ -1,6 +1,9 @@
+import time
+
 from openai import AsyncOpenAI
 
 from app.config import settings
+from app.observability.metrics import llm_request_duration_seconds, llm_tokens_total
 from app.utils.cost import tracker
 
 
@@ -23,9 +26,16 @@ async def _embed_via_openai(
     texts: list[str], request_id: str | None
 ) -> list[list[float]]:
     tracker.check_budget()
+    start = time.perf_counter()
     response = await _get_openai_client().embeddings.create(
         model=settings.embedding_model,
         input=texts,
+    )
+    llm_request_duration_seconds.labels(operation="embedding").observe(
+        time.perf_counter() - start
+    )
+    llm_tokens_total.labels(operation="embedding", kind="prompt").inc(
+        response.usage.total_tokens
     )
     tracker.record(
         model=settings.embedding_model,

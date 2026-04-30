@@ -4,6 +4,8 @@ python-multipart>=0.0.12
 pydantic>=2.9.0
 pydantic-settings>=2.6.0
 python-dotenv>=1.0.0
+prometheus-client>=0.20.0
+python-json-logger>=2.0.0
 
 langchain-core>=0.3.0
 langchain-text-splitters>=0.3.0

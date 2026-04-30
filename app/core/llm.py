@@ -1,6 +1,9 @@
+import time
+
 from openai import AsyncOpenAI
 
 from app.config import settings
+from app.observability.metrics import llm_request_duration_seconds, llm_tokens_total
 from app.utils.cost import tracker
 
 
@@ -27,6 +30,7 @@ async def chat_completion(
     max_tokens: int = 500,
 ) -> str:
     tracker.check_budget()
+    start = time.perf_counter()
     response = await _get_client().chat.completions.create(
         model=settings.llm_model,
         messages=[
@@ -35,6 +39,15 @@ async def chat_completion(
         ],
         temperature=temperature,
         max_tokens=max_tokens,
+    )
+    llm_request_duration_seconds.labels(operation="completion").observe(
+        time.perf_counter() - start
+    )
+    llm_tokens_total.labels(operation="completion", kind="prompt").inc(
+        response.usage.prompt_tokens
+    )
+    llm_tokens_total.labels(operation="completion", kind="completion").inc(
+        response.usage.completion_tokens
     )
     tracker.record(
         model=settings.llm_model,
