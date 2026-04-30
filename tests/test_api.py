@@ -157,6 +157,19 @@ def test_qa_rejects_blank_question(client):
     assert "empty" in response.text.lower() or "whitespace" in response.text.lower()
 
 
+def test_qa_rejects_more_than_50_questions(client):
+    too_many = json.dumps([f"q{i}?" for i in range(51)]).encode()
+    response = client.post(
+        "/qa",
+        files={
+            "document": ("p.json", b'{"x":"y"}', "application/json"),
+            "questions": ("q.json", too_many, "application/json"),
+        },
+    )
+    assert response.status_code == 422
+    assert "50" in response.text or "max_length" in response.text or "too" in response.text.lower()
+
+
 def test_qa_returns_504_when_llm_call_times_out(client, monkeypatch):
     monkeypatch.setattr(config.settings, "llm_timeout_s", 0.1)
 
