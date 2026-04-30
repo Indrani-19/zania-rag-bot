@@ -45,6 +45,19 @@ class Settings(BaseSettings):
     rerank_model: str = "BAAI/bge-reranker-base"
     retrieval_fetch_k: int = 20
 
+    # Hybrid retrieval — BM25 lexical search fused with dense via Reciprocal
+    # Rank Fusion. Catches exact-token queries (model names, IDs, keywords)
+    # that pure dense retrieval misses. RRF score is the Hit.similarity when
+    # hybrid is on, so similarity_floor needs recalibration like with rerank.
+    hybrid_enabled: bool = False
+    rrf_k: int = 60
+
+    # Query rewriting. When enabled, run a lightweight LLM call to rewrite
+    # the question into a hypothetical answer (HyDE), then embed THAT for
+    # retrieval. Helps when query vocabulary differs from doc vocabulary.
+    # Adds one LLM call (~200-500 ms) before retrieval.
+    query_rewrite_enabled: bool = False
+
     max_upload_size_mb: int = 50
     cost_hard_cap_usd: float = 4.0
     log_level: str = "INFO"
