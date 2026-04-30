@@ -110,12 +110,21 @@ PDF / JSON / XLSX → Loader → Chunker → Embeddings → Chroma (persisted)
 ## Tests, eval, cost
 
 ```bash
-make test          # 90 unit tests, all mocked, no API calls
-make eval          # eval harness against /tmp/soc2.pdf
-make lint          # ruff
+make test                  # full suite — unit + integration + regression, mocked, no API calls
+make regression            # offline pipeline regression suite only
+make eval                  # eval harness against /tmp/soc2.pdf (absolute thresholds)
+make eval-check            # eval + compare to eval/baseline.json (regression gate)
+make eval-update-baseline  # accept current run as the new baseline
+make lint                  # ruff
 ```
 
-Tests cover the refusal logic, intent classifiers, ingestion edge cases (scanned PDFs, malformed JSON, empty xlsx rows, missing headers), the full error-mapping table, and the chat UI route. CI runs them on every push. A typical end-to-end run on `gpt-4o-mini` costs ~$0.005.
+**Three layers:**
+
+1. **Unit + integration** (~100 tests, 82% line coverage on `app/`). Unit tests cover ingestion, intent classifiers, refusal logic, cost tracker, eval harness, observability. Integration tests hit the full FastAPI stack via `TestClient` — happy path, the full error-mapping table (402/422/503/504/404), oversized uploads, deterministic `document_id`.
+2. **Pipeline regression** (`tests/test_regression_pipeline.py`, 14 cases). Frozen contracts on `answer_question()` over the full real stack — ingestion → Chroma → intent → retrieval → similarity floor → prompt routing — with mocked LLM and a deterministic 256-dim hashed bag-of-words embedder. Catches anyone who breaks intent routing, the floor short-circuit, or the listing/summary prompts. Runs in CI; no OpenAI calls.
+3. **Eval regression gate** (`make eval-check`). Runs the labeled question set against real OpenAI, then compares per-metric scores (deterministic / faithfulness / relevance / refusal precision / refusal recall) to `eval/baseline.json` with a configurable tolerance (default ±5pp). Catches the case where a prompt or model change leaves absolute thresholds intact but quietly drops 10 points off faithfulness. Run after intentional changes with `make eval-update-baseline` to accept the new scores.
+
+A typical eval run on `gpt-4o-mini` costs ~$0.005.
 
 ## Project layout
 

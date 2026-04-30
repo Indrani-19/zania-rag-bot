@@ -11,6 +11,14 @@ from eval.metrics import (
     check_refusal,
     evaluate_expected,
 )
+from eval.baseline import (
+    Baseline,
+    MetricSnapshot,
+    compare,
+    load_baseline,
+    save_baseline,
+    snapshot_from_report,
+)
 from eval.runner import EvalReport, QuestionResult, Thresholds, report_passes, run_eval
 
 
@@ -126,3 +134,91 @@ async def test_runner_end_to_end_with_mocked_qa_and_judges(tmp_path):
     assert report.faithful_passed == 2
     assert report.relevant_passed == 2
     assert report.refusal_recall == (1, 1)
+
+
+# --- Baseline regression check ---
+
+
+def _good_report() -> EvalReport:
+    return EvalReport(document="soc2.pdf", results=[
+        _result("factual", True, "FAITHFUL", "ON_TOPIC"),
+        _result("factual", True, "FAITHFUL", "ON_TOPIC"),
+        _result("factual", True, "FAITHFUL", "ON_TOPIC"),
+        _result("out_of_scope", True, "REFUSAL", "REFUSAL"),
+    ])
+
+
+def test_snapshot_from_report_computes_per_metric_ratios():
+    snap = snapshot_from_report(_good_report())
+    assert snap.deterministic == 1.0
+    assert snap.faithfulness == 1.0
+    assert snap.relevance == 1.0
+    assert snap.refusal_precision == 1.0
+    assert snap.refusal_recall == 1.0
+
+
+def test_snapshot_skips_refusal_metrics_when_no_out_of_scope_questions():
+    report = EvalReport(document="x", results=[
+        _result("factual", True, "FAITHFUL", "ON_TOPIC"),
+    ])
+    snap = snapshot_from_report(report)
+    assert snap.refusal_precision is None
+    assert snap.refusal_recall is None
+
+
+def test_compare_passes_when_metrics_match_baseline():
+    snap = snapshot_from_report(_good_report())
+    baseline = Baseline(document="x", tolerance_pp=5.0, metrics=snap)
+    result = compare(snap, baseline)
+    assert result.passed
+    assert all(d.delta_pp == 0 for d in result.deltas)
+
+
+def test_compare_passes_when_drop_within_tolerance():
+    baseline = Baseline(
+        document="x", tolerance_pp=5.0,
+        metrics=MetricSnapshot(0.90, 0.90, 0.90, 1.0, 1.0),
+    )
+    current = MetricSnapshot(0.86, 0.87, 0.90, 1.0, 1.0)  # all drops ≤ 5pp
+    result = compare(current, baseline)
+    assert result.passed
+    assert result.regressions == []
+
+
+def test_compare_fails_when_any_drop_exceeds_tolerance():
+    baseline = Baseline(
+        document="x", tolerance_pp=5.0,
+        metrics=MetricSnapshot(0.90, 0.90, 0.90, 1.0, 1.0),
+    )
+    current = MetricSnapshot(0.90, 0.80, 0.90, 1.0, 1.0)  # faithfulness dropped 10pp
+    result = compare(current, baseline)
+    assert not result.passed
+    regressed_names = {d.name for d in result.regressions}
+    assert regressed_names == {"faithfulness"}
+
+
+def test_compare_does_not_penalize_improvements():
+    baseline = Baseline(
+        document="x", tolerance_pp=5.0,
+        metrics=MetricSnapshot(0.80, 0.80, 0.80, 1.0, 0.5),
+    )
+    current = MetricSnapshot(1.00, 1.00, 1.00, 1.0, 1.0)
+    result = compare(current, baseline)
+    assert result.passed
+    assert all(d.delta_pp >= 0 for d in result.deltas)
+
+
+def test_save_and_load_baseline_round_trips(tmp_path):
+    path = tmp_path / "baseline.json"
+    saved = save_baseline(_good_report(), path, tolerance_pp=5.0, notes="initial")
+    loaded = load_baseline(path)
+    assert loaded is not None
+    assert loaded.document == saved.document
+    assert loaded.tolerance_pp == 5.0
+    assert loaded.metrics == saved.metrics
+    assert loaded.captured_at == saved.captured_at
+    assert loaded.notes == "initial"
+
+
+def test_load_baseline_returns_none_when_file_missing(tmp_path):
+    assert load_baseline(tmp_path / "nope.json") is None

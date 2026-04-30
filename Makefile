@@ -1,15 +1,18 @@
-.PHONY: help install test lint run docker-up docker-down eval clean
+.PHONY: help install test regression lint run docker-up docker-down eval eval-check eval-update-baseline clean
 
 help:
 	@echo "Targets:"
 	@echo "  install      Create venv and install dev deps"
-	@echo "  test         Run unit tests (mocked LLM, no API calls)"
-	@echo "  lint         Run ruff"
-	@echo "  run          Start the FastAPI server locally on :8000"
-	@echo "  docker-up    Build and start the service via docker compose"
-	@echo "  docker-down  Stop the docker-compose stack"
-	@echo "  eval         Run the eval harness against /tmp/soc2.pdf"
-	@echo "  clean        Remove caches, chroma persist dir, and cost log"
+	@echo "  test                  Run all tests (unit + integration + regression, mocked, no API calls)"
+	@echo "  regression            Run only the offline pipeline regression suite"
+	@echo "  lint                  Run ruff"
+	@echo "  run                   Start the FastAPI server locally on :8000"
+	@echo "  docker-up             Build and start the service via docker compose"
+	@echo "  docker-down           Stop the docker-compose stack"
+	@echo "  eval                  Run the eval harness against /tmp/soc2.pdf (absolute thresholds)"
+	@echo "  eval-check            Run the eval and compare to eval/baseline.json (regression gate)"
+	@echo "  eval-update-baseline  Run the eval and overwrite eval/baseline.json (use after intentional changes)"
+	@echo "  clean                 Remove caches, chroma persist dir, and cost log"
 
 install:
 	python3.12 -m venv venv
@@ -18,6 +21,9 @@ install:
 
 test:
 	./venv/bin/pytest -v
+
+regression:
+	./venv/bin/pytest -v tests/test_regression_pipeline.py
 
 lint:
 	./venv/bin/ruff check app eval tests
@@ -35,6 +41,16 @@ eval:
 	@test -f /tmp/soc2.pdf || (echo "Sample PDF missing. Fetch with:"; \
 	  echo "  curl -L -o /tmp/soc2.pdf https://productfruits.com/docs/soc2-type2.pdf"; exit 1)
 	./venv/bin/python -m eval.cli --document /tmp/soc2.pdf
+
+eval-check:
+	@test -f /tmp/soc2.pdf || (echo "Sample PDF missing. Fetch with:"; \
+	  echo "  curl -L -o /tmp/soc2.pdf https://productfruits.com/docs/soc2-type2.pdf"; exit 1)
+	./venv/bin/python -m eval.cli --document /tmp/soc2.pdf --check-regression
+
+eval-update-baseline:
+	@test -f /tmp/soc2.pdf || (echo "Sample PDF missing. Fetch with:"; \
+	  echo "  curl -L -o /tmp/soc2.pdf https://productfruits.com/docs/soc2-type2.pdf"; exit 1)
+	./venv/bin/python -m eval.cli --document /tmp/soc2.pdf --update-baseline
 
 clean:
 	rm -rf chroma_db cost_log.jsonl .pytest_cache .ruff_cache
