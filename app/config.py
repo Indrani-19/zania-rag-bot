@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     max_upload_size_mb: int = 50
     cost_hard_cap_usd: float = 4.0
     log_level: str = "INFO"
+    llm_timeout_s: float = 30.0
 
 
 settings = Settings()

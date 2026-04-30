@@ -153,6 +153,16 @@ async def _llm_unreachable_handler(
     )
 
 
+@app.exception_handler(TimeoutError)
+async def _llm_timeout_handler(request: Request, exc: TimeoutError) -> JSONResponse:
+    return _problem(
+        504,
+        "llm_timeout",
+        "LLM provider call timed out",
+        f"Upstream call exceeded {settings.llm_timeout_s}s",
+    )
+
+
 @app.exception_handler(openai.APIStatusError)
 async def _llm_status_handler(
     request: Request, exc: openai.APIStatusError

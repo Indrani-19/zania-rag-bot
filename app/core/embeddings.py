@@ -1,3 +1,5 @@
+import asyncio
+
 from openai import AsyncOpenAI
 
 from app.config import settings
@@ -23,9 +25,12 @@ async def _embed_via_openai(
     texts: list[str], request_id: str | None
 ) -> list[list[float]]:
     tracker.check_budget()
-    response = await _get_openai_client().embeddings.create(
-        model=settings.embedding_model,
-        input=texts,
+    response = await asyncio.wait_for(
+        _get_openai_client().embeddings.create(
+            model=settings.embedding_model,
+            input=texts,
+        ),
+        timeout=settings.llm_timeout_s,
     )
     tracker.record(
         model=settings.embedding_model,
