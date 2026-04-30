@@ -24,9 +24,24 @@ async def retrieve(
     document_id: str, question: str, request_id: str | None = None
 ) -> Retrieval:
     [embedding] = await embed_texts([question], request_id=request_id)
-    raw_hits = await vectorstore.query(
-        document_id, embedding, settings.retrieval_top_k
+
+    # Fetch wider when reranking — give the cross-encoder more candidates to
+    # choose from. When rerank is off, fetch_k == top_k (no extra work).
+    fetch_k = (
+        settings.retrieval_fetch_k if settings.rerank_enabled
+        else settings.retrieval_top_k
     )
+    raw_hits = await vectorstore.query(document_id, embedding, fetch_k)
+
+    if settings.rerank_enabled and raw_hits:
+        from app.core.reranker import rerank
+
+        scores = await rerank(question, [h["text"] for h in raw_hits])
+        for h, s in zip(raw_hits, scores):
+            h["similarity"] = s
+        raw_hits.sort(key=lambda h: h["similarity"], reverse=True)
+        raw_hits = raw_hits[: settings.retrieval_top_k]
+
     hits = [
         Hit(
             text=h["text"],

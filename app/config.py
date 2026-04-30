@@ -36,6 +36,15 @@ class Settings(BaseSettings):
     chunk_size: int = 1000
     chunk_overlap: int = 200
 
+    # Cross-encoder reranking. When enabled, fetch retrieval_fetch_k candidates
+    # from Chroma, score them with the rerank model, and return retrieval_top_k.
+    # The Hit.similarity field becomes the (sigmoid'd) rerank score, so the
+    # similarity_floor short-circuit still works — recalibrate it for the rerank
+    # score distribution if you turn this on.
+    rerank_enabled: bool = False
+    rerank_model: str = "BAAI/bge-reranker-base"
+    retrieval_fetch_k: int = 20
+
     max_upload_size_mb: int = 50
     cost_hard_cap_usd: float = 4.0
     log_level: str = "INFO"
