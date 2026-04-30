@@ -1,11 +1,12 @@
 import logging
-import uuid
 
 from fastapi import APIRouter, File, Query, UploadFile
 
-from app.api._helpers import check_size, serialize_answers
+from app.api._helpers import read_capped, serialize_answers
+from app.config import settings
 from app.core import qa as qa_module
 from app.core import vectorstore
+from app.core.hashing import hash_file_bytes
 from app.core.ingestion import ingest
 from app.models.schemas import DocumentUploadResponse, QuestionsPayload
 from app.utils.cost import tracker
@@ -17,12 +18,12 @@ logger = logging.getLogger(__name__)
 
 @router.post("/documents", response_model=DocumentUploadResponse)
 async def upload_document(document: UploadFile = File(...)) -> DocumentUploadResponse:
-    content = await document.read()
-    check_size(content)
+    max_bytes = settings.max_upload_size_mb * 1024 * 1024
+    content = await read_capped(document, max_bytes)
 
     chunks = ingest(content, document.filename or "untitled")
 
-    document_id = str(uuid.uuid4())
+    document_id = hash_file_bytes(content)
     cost_before = tracker.cumulative_cost_usd
     chunk_count = await vectorstore.index_document(
         document_id, chunks, request_id=document_id

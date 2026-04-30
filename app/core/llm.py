@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 from openai import AsyncOpenAI
@@ -31,14 +32,17 @@ async def chat_completion(
 ) -> str:
     tracker.check_budget()
     start = time.perf_counter()
-    response = await _get_client().chat.completions.create(
-        model=settings.llm_model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        temperature=temperature,
-        max_tokens=max_tokens,
+    response = await asyncio.wait_for(
+        _get_client().chat.completions.create(
+            model=settings.llm_model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            temperature=temperature,
+            max_tokens=max_tokens,
+        ),
+        timeout=settings.llm_timeout_s,
     )
     llm_request_duration_seconds.labels(operation="completion").observe(
         time.perf_counter() - start

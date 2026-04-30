@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 from openai import AsyncOpenAI
@@ -27,9 +28,12 @@ async def _embed_via_openai(
 ) -> list[list[float]]:
     tracker.check_budget()
     start = time.perf_counter()
-    response = await _get_openai_client().embeddings.create(
-        model=settings.embedding_model,
-        input=texts,
+    response = await asyncio.wait_for(
+        _get_openai_client().embeddings.create(
+            model=settings.embedding_model,
+            input=texts,
+        ),
+        timeout=settings.llm_timeout_s,
     )
     llm_request_duration_seconds.labels(operation="embedding").observe(
         time.perf_counter() - start
@@ -50,7 +54,6 @@ async def _embed_via_local(
     texts: list[str], request_id: str | None
 ) -> list[list[float]]:
     # Imported lazily so the dep is only loaded when actually used.
-    import asyncio
     from sentence_transformers import SentenceTransformer  # type: ignore
 
     global _local_model, _local_model_lock
