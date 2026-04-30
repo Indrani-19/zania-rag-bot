@@ -125,6 +125,10 @@ def test_low_signal_does_not_match_real_input(text):
         "what is this document about?",
         "give me an overview",
         "main points please",
+        "summarie",
+        "summarise this",
+        "summaries",
+        "summarization",
     ],
 )
 def test_summary_intent_detected(text):

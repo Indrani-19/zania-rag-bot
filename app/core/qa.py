@@ -48,7 +48,7 @@ Rules:
 
 SUMMARY_INTENT_RE = re.compile(
     r"\b("
-    r"summari[sz]e|summari[sz]ation|summari[sz]ed|summary"
+    r"summar\w+"
     r"|tl[;:]?dr"
     r"|overview"
     r"|main\s+points|key\s+points|key\s+takeaways"
@@ -59,7 +59,7 @@ SUMMARY_INTENT_RE = re.compile(
     re.IGNORECASE,
 )
 
-SUMMARY_CHUNK_LIMIT = 30
+SUMMARY_CHUNK_LIMIT = 15
 SUMMARY_SOURCE_PREVIEW = 4
 
 # Greeting / chitchat — message is *only* a greeting, no substantive question.
